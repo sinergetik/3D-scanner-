@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Сканер — Face Mesh & Depth Studio</title>
+    <title>3D Сканер — LiDAR & Night Vision</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Three.js & OrbitControls -->
@@ -28,7 +28,6 @@
             font-family: 'JetBrains Mono', monospace;
         }
 
-        /* Futuristic LiDAR Scanner Grid & Laser Animation */
         .scanner-laser {
             position: absolute;
             left: 0;
@@ -41,6 +40,11 @@
             z-index: 15;
         }
 
+        .nv-laser {
+            background: linear-gradient(90deg, transparent, #22c55e, #4ade80, transparent) !important;
+            box-shadow: 0 0 14px #22c55e !important;
+        }
+
         @keyframes scanLaser {
             0%, 100% { top: 6%; opacity: 0.3; }
             50% { top: 94%; opacity: 0.95; }
@@ -48,14 +52,13 @@
 
         .hud-corner {
             position: absolute;
-            width: 16px;
-            height: 16px;
+            width: 14px;
+            height: 14px;
             border-color: #00f5d4;
             pointer-events: none;
             z-index: 20;
         }
 
-        /* Custom Scrollbar & Range Sliders */
         input[type="range"] {
             -webkit-appearance: none;
             appearance: none;
@@ -76,227 +79,250 @@
         }
 
         .glass-panel {
-            background: rgba(15, 23, 42, 0.78);
+            background: rgba(15, 23, 42, 0.82);
             backdrop-filter: blur(12px);
             border: 1px solid rgba(56, 189, 248, 0.18);
         }
 
-        .glow-btn {
-            box-shadow: 0 0 20px rgba(0, 245, 212, 0.25);
-        }
-        .glow-btn:hover {
-            box-shadow: 0 0 28px rgba(0, 245, 212, 0.45);
+        /* Night Vision CRT Scanline Overlay */
+        .nv-scanlines {
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.18),
+                rgba(0, 0, 0, 0.18) 1px,
+                transparent 1px,
+                transparent 3px
+            );
+            box-shadow: inset 0 0 60px rgba(34, 197, 94, 0.28);
         }
     </style>
 </head>
 <body class="min-h-screen flex flex-col justify-between select-none">
 
-    <!-- Top Header -->
-    <header class="glass-panel sticky top-0 z-40 px-4 py-3 border-b border-cyan-500/20">
-        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-400/40 flex items-center justify-center text-cyan-400 shadow-inner">
-                    <i data-lucide="scan-face" class="w-6 h-6"></i>
-                </div>
-                <div>
-                    <div class="flex items-center gap-2">
-                        <h1 class="font-bold text-base sm:text-lg tracking-tight text-white">TrueDepth <span class="text-cyan-400">Web 3D Studio</span></h1>
-                        <span id="statusBadge" class="mono text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                            ГОТОВ
-                        </span>
-                    </div>
-                    <p class="text-xs text-slate-400 hidden sm:block">Нейросетевой 3D-сканер лица и рельефа с экспортом в .OBJ / .PLY</p>
-                </div>
+    <!-- Компактная панель кнопок (без верхней строки заголовка) -->
+    <header class="glass-panel sticky top-0 z-40 px-3 py-2 border-b border-cyan-500/20">
+        <div class="max-w-7xl mx-auto flex items-center justify-between gap-1.5">
+            <div class="flex items-center gap-1.5">
+                <button id="btnInfo" class="p-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Справка по XRViewer и LiDAR">
+                    <i data-lucide="info" class="w-4 h-4 text-cyan-400"></i>
+                </button>
+                <button id="btnSwitchCam" class="p-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Переключить фронтальную/заднюю камеру">
+                    <i data-lucide="refresh-cw" class="w-4 h-4 text-cyan-400"></i>
+                </button>
+                <button id="btnNightVision" class="px-2.5 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition" title="Режим ночного видения (ПНВ + ИК контуры)">
+                    <i data-lucide="eye" class="w-4 h-4 text-emerald-400"></i>
+                    <span>ПНВ</span>
+                </button>
             </div>
 
-            <!-- Action Buttons -->
-            <div class="flex items-center gap-2">
-                <button id="btnInfo" class="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
-                    <i data-lucide="info" class="w-4 h-4 text-cyan-400"></i>
-                    <span class="hidden md:inline">Как это работает?</span>
+            <div class="flex items-center gap-1.5">
+                <button id="btnStartLiDAR" class="px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-400/50 font-semibold text-xs flex items-center gap-1.5 transition shadow-sm">
+                    <i data-lucide="radar" class="w-4 h-4 text-emerald-400"></i>
+                    <span id="btnLiDARText">LiDAR (XR)</span>
                 </button>
-                <button id="btnSwitchCam" class="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition" title="Переключить фронтальную/заднюю камеру">
-                    <i data-lucide="refresh-cw" class="w-4 h-4 text-cyan-400"></i>
-                    <span class="hidden sm:inline">Камера</span>
-                </button>
-                <button id="btnStartCam" class="glow-btn px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition">
+                <button id="btnStartCam" class="px-3 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 font-semibold text-xs flex items-center gap-1.5 transition shadow-sm">
                     <i data-lucide="video" class="w-4 h-4"></i>
-                    <span id="btnStartCamText">Включить камеру</span>
+                    <span id="btnStartCamText">Камера</span>
                 </button>
             </div>
         </div>
     </header>
 
-    <!-- Main Workspace -->
+    <!-- WebXR AR Overlay (виден во время работы реального LiDAR в XRViewer) -->
+    <div id="xrHudOverlay" class="fixed inset-0 pointer-events-none z-50 hidden flex flex-col justify-between p-4">
+        <div class="flex justify-between items-start gap-2">
+            <div class="glass-panel px-3 py-2 rounded-xl text-xs mono text-emerald-300 border border-emerald-500/40 pointer-events-auto space-y-0.5">
+                <div class="font-bold text-white flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    ARKit LiDAR АКТИВЕН
+                </div>
+                <div>ТОЧЕК СКАНА: <strong id="xrPointCount" class="text-white">0</strong></div>
+                <div>ДИСТАНЦИЯ ЦЕНТРА: <strong id="xrCenterDist" class="text-cyan-300">— м</strong></div>
+            </div>
+
+            <div class="flex gap-2 pointer-events-auto">
+                <button id="btnXrNight" class="px-3 py-2 rounded-xl bg-slate-900/90 text-emerald-300 border border-emerald-500/40 text-xs font-semibold">
+                    ПНВ Сетка
+                </button>
+                <button id="btnExitXR" class="px-3.5 py-2 rounded-xl bg-rose-600 text-white font-semibold text-xs shadow-lg">
+                    Готово (В 3D)
+                </button>
+            </div>
+        </div>
+
+        <!-- Прицел дальномера LiDAR по центру экрана -->
+        <div class="self-center flex flex-col items-center justify-center pointer-events-none">
+            <div class="w-10 h-10 rounded-full border border-emerald-400/80 flex items-center justify-center">
+                <div class="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+            </div>
+        </div>
+
+        <div class="flex justify-between items-center pointer-events-auto">
+            <button id="btnClearXRCloud" class="px-3 py-2 rounded-xl bg-slate-900/85 text-slate-300 border border-slate-700 text-xs">
+                Очистить точки
+            </button>
+            <span class="text-[11px] mono text-emerald-300 bg-slate-950/80 px-2.5 py-1 rounded-lg border border-emerald-500/30">
+                Водите камерой плавно для захвата геометрии
+            </span>
+        </div>
+    </div>
+
+    <!-- Основная рабочая область -->
     <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
 
-        <!-- Left / Center Column: 3D Interactive Viewport (8 cols on desktop) -->
+        <!-- 3D Вьюпорт (8 колонок на ПК) -->
         <div class="lg:col-span-8 flex flex-col gap-3">
-            <!-- 3D Viewport Container -->
-            <div class="relative w-full h-[420px] sm:h-[540px] rounded-2xl overflow-hidden border border-cyan-500/30 bg-[#050811] shadow-2xl flex-1">
+            <div id="viewportWrapper" class="relative w-full h-[430px] sm:h-[540px] rounded-2xl overflow-hidden border border-cyan-500/30 bg-[#050811] shadow-2xl flex-1">
                 
-                <!-- Three.js Canvas Mount -->
+                <!-- Эффект ПНВ поверх вьюпорта -->
+                <div id="nvViewportOverlay" class="absolute inset-0 pointer-events-none z-10 hidden nv-scanlines"></div>
+
+                <!-- Three.js Canvas -->
                 <div id="threeContainer" class="w-full h-full cursor-grab active:cursor-grabbing"></div>
 
-                <!-- Top-Left Viewport HUD -->
+                <!-- Верхний левый HUD -->
                 <div class="absolute top-3 left-3 z-20 flex flex-col gap-1.5 pointer-events-none">
-                    <div class="glass-panel px-3 py-1.5 rounded-lg text-xs mono text-cyan-300 flex items-center gap-2">
+                    <div class="glass-panel px-2.5 py-1 rounded-lg text-[11px] mono text-cyan-300 flex items-center gap-1.5">
                         <i data-lucide="box" class="w-3.5 h-3.5"></i>
-                        <span id="hudModeLabel">РЕЖИМ: 3D ЛИЦО (AI MESH)</span>
+                        <span id="hudModeLabel">РЕЖИМ: КАРТА ГЛУБИНЫ (3D РЕЛЬЕФ)</span>
                     </div>
-                    <div class="glass-panel px-3 py-1 rounded-lg text-[11px] mono text-slate-300 flex items-center gap-3">
+                    <div class="glass-panel px-2.5 py-1 rounded-lg text-[11px] mono text-slate-300 flex items-center gap-3">
                         <span>ВЕРШИН: <strong id="hudVertices" class="text-white">0</strong></span>
                         <span>FPS: <strong id="hudFps" class="text-emerald-400">60</strong></span>
+                        <span id="hudLidarDist" class="hidden text-emerald-300">Z: <strong id="hudDistVal">0.00м</strong></span>
                     </div>
                 </div>
 
-                <!-- Top-Right Viewport Controls (Reset camera, Auto-rotate) -->
+                <!-- Верхние правые кнопки управления ракурсом -->
                 <div class="absolute top-3 right-3 z-20 flex items-center gap-1.5">
-                    <button id="btnAutoRotate" class="glass-panel p-2 rounded-lg text-slate-300 hover:text-cyan-400 transition" title="Авто-вращение 3D модели">
+                    <button id="btnAutoRotate" class="glass-panel p-2 rounded-lg text-slate-300 hover:text-cyan-400 transition" title="Авто-вращение">
                         <i data-lucide="orbit" class="w-4 h-4"></i>
                     </button>
-                    <button id="btnResetView" class="glass-panel p-2 rounded-lg text-slate-300 hover:text-cyan-400 transition" title="Сбросить ракурс 3D камеры">
+                    <button id="btnResetView" class="glass-panel p-2 rounded-lg text-slate-300 hover:text-cyan-400 transition" title="Сбросить ракурс">
                         <i data-lucide="focus" class="w-4 h-4"></i>
                     </button>
                 </div>
 
-                <!-- Picture-in-Picture Live Camera Feed + HUD -->
-                <div class="absolute bottom-3 left-3 z-20 w-36 sm:w-48 aspect-[4/3] rounded-xl overflow-hidden border border-cyan-400/40 bg-slate-950/90 shadow-lg">
-                    <div class="scanner-laser"></div>
-                    <!-- HUD Corners -->
-                    <div class="hud-corner top-1.5 left-1.5 border-t-2 border-l-2"></div>
-                    <div class="hud-corner top-1.5 right-1.5 border-t-2 border-r-2"></div>
-                    <div class="hud-corner bottom-1.5 left-1.5 border-b-2 border-l-2"></div>
-                    <div class="hud-corner bottom-1.5 right-1.5 border-b-2 border-r-2"></div>
+                <!-- Мини-экран живой камеры / ПНВ (PiP) -->
+                <div id="pipWrapper" class="absolute bottom-3 left-3 z-20 w-36 sm:w-44 aspect-[4/3] rounded-xl overflow-hidden border border-cyan-400/40 bg-slate-950/90 shadow-lg transition-all">
+                    <div id="pipLaser" class="scanner-laser"></div>
+                    <div class="hud-corner top-1 left-1 border-t-2 border-l-2"></div>
+                    <div class="hud-corner top-1 right-1 border-t-2 border-r-2"></div>
+                    <div class="hud-corner bottom-1 left-1 border-b-2 border-l-2"></div>
+                    <div class="hud-corner bottom-1 right-1 border-b-2 border-r-2"></div>
 
-                    <!-- Hidden raw video & visible 2D overlay canvas -->
                     <video id="webcamVideo" class="hidden" playsinline muted></video>
-                    <canvas id="pipCanvas" class="w-full h-full object-cover transform scale-x-[-1]"></canvas>
+                    <canvas id="pipCanvas" class="w-full h-full object-cover"></canvas>
 
-                    <div class="absolute bottom-1 left-2 right-2 flex justify-between items-center text-[10px] mono text-cyan-300 bg-slate-950/70 px-1.5 py-0.5 rounded">
+                    <div class="absolute bottom-1 left-1.5 right-1.5 flex justify-between items-center text-[9px] mono text-cyan-300 bg-slate-950/75 px-1.5 py-0.5 rounded">
                         <span id="pipSourceLabel">СИМУЛЯЦИЯ</span>
-                        <span class="text-emerald-400">IR-DEPTH</span>
+                        <span id="pipRightBadge" class="text-emerald-400">IR-DEPTH</span>
                     </div>
                 </div>
 
-                <!-- Bottom-Right Freeze / Capture Button inside Viewport -->
+                <!-- Кнопка фиксации скана -->
                 <div class="absolute bottom-3 right-3 z-20 flex items-center gap-2">
-                    <button id="btnFreeze" class="px-4 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-white border border-cyan-400/50 font-medium text-xs sm:text-sm flex items-center gap-2 shadow-lg transition">
+                    <button id="btnFreeze" class="px-3.5 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-white border border-cyan-400/50 font-medium text-xs flex items-center gap-1.5 shadow-lg transition">
                         <i data-lucide="camera" class="w-4 h-4 text-cyan-400"></i>
-                        <span id="freezeBtnText">Зафиксировать 3D скан</span>
-                    </button>
-                </div>
-
-                <!-- Interactive Hint -->
-                <div class="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/70 border border-slate-700/60 text-[11px] text-slate-400 pointer-events-none">
-                    <i data-lucide="mouse-pointer-click" class="w-3.5 h-3.5 text-cyan-400"></i>
-                    <span>Вращайте и приближайте 3D-модель пальцем или мышью</span>
-                </div>
-            </div>
-
-            <!-- Export Bar -->
-            <div class="glass-panel rounded-2xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3">
-                <div class="flex items-center gap-2.5">
-                    <div class="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-                        <i data-lucide="download" class="w-5 h-5"></i>
-                    </div>
-                    <div>
-                        <h2 class="text-xs sm:text-sm font-semibold text-white">Экспорт готовой 3D-модели</h2>
-                        <p class="text-[11px] text-slate-400">Подходит для Blender, ZBrush, MeshLab или 3D-слайсеров</p>
-                    </div>
-                </div>
-
-                <div class="flex items-center gap-2 w-full sm:w-auto">
-                    <button id="btnExportOBJ" class="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-semibold mono flex items-center justify-center gap-1.5 transition">
-                        <i data-lucide="file-box" class="w-4 h-4"></i>
-                        Скачать .OBJ (Mesh)
-                    </button>
-                    <button id="btnExportPLY" class="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold mono flex items-center justify-center gap-1.5 transition">
-                        <i data-lucide="sparkles" class="w-4 h-4"></i>
-                        Скачать .PLY (Cloud)
+                        <span id="freezeBtnText">Зафиксировать скан</span>
                     </button>
                 </div>
             </div>
         </div>
 
-        <!-- Right Column: Scanner Controls & Settings (4 cols on desktop) -->
-        <div class="lg:col-span-4 flex flex-col gap-4">
+        <!-- Правая колонка: Настройки датчика и режимов (4 колонки на ПК) -->
+        <div class="lg:col-span-4 flex flex-col gap-3">
 
-            <!-- Mode Selector Card -->
-            <div class="glass-panel rounded-2xl p-4 flex flex-col gap-3">
+            <!-- 1. Выбор режима -->
+            <div class="glass-panel rounded-2xl p-3.5 flex flex-col gap-2.5">
                 <div class="flex items-center justify-between">
-                    <span class="text-xs font-semibold uppercase tracking-wider text-cyan-400 mono">1. Режим сканирования</span>
-                    <span class="text-[11px] text-slate-400">Датчик / Алгоритм</span>
+                    <span class="text-xs font-semibold uppercase tracking-wider text-cyan-400 mono">1. Режим датчика</span>
+                    <span id="sensorBadge" class="text-[10px] mono px-2 py-0.5 rounded bg-slate-800 text-slate-300">WebRTC / XR</span>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
-                    <button id="modeFaceBtn" class="mode-btn text-left p-3 rounded-xl border border-cyan-400 bg-cyan-500/10 transition flex items-start gap-3">
-                        <div class="p-2 rounded-lg bg-cyan-500/20 text-cyan-300 mt-0.5">
-                            <i data-lucide="scan-face" class="w-5 h-5"></i>
+                <div class="grid grid-cols-1 gap-2">
+                    <!-- Реальный LiDAR (XRViewer / WebXR) -->
+                    <button id="modeLidarBtn" class="mode-btn text-left p-2.5 rounded-xl border border-slate-700/80 bg-slate-900/50 hover:border-emerald-500/60 transition flex items-start gap-2.5">
+                        <div class="p-2 rounded-lg bg-emerald-500/20 text-emerald-300 mt-0.5">
+                            <i data-lucide="radar" class="w-4 h-4"></i>
                         </div>
                         <div>
-                            <div class="font-semibold text-sm text-white flex items-center gap-1.5">
-                                3D Лицо (AI TrueDepth)
-                                <span class="text-[10px] px-1.5 py-0.2 bg-cyan-500/30 text-cyan-200 rounded mono">468 тчк</span>
+                            <div class="font-semibold text-xs sm:text-sm text-white flex items-center gap-1.5">
+                                Реальный LiDAR (XRViewer)
+                                <span class="text-[10px] px-1.5 py-0.2 bg-emerald-500/30 text-emerald-200 rounded mono">ARKit 1:1</span>
                             </div>
-                            <p class="text-xs text-slate-400 mt-0.5">Нейросеть MediaPipe строит точный 3D-слепок лица в реальном времени.</p>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Аппаратный лазерный датчик глубины iPhone Pro через WebXR Hit-Test и Depth API.</p>
                         </div>
                     </button>
 
-                    <button id="modeDepthBtn" class="mode-btn text-left p-3 rounded-xl border border-slate-700/80 bg-slate-900/50 hover:border-slate-600 transition flex items-start gap-3">
-                        <div class="p-2 rounded-lg bg-slate-800 text-slate-300 mt-0.5">
-                            <i data-lucide="layers" class="w-5 h-5"></i>
+                    <!-- Карта глубины + ПНВ -->
+                    <button id="modeDepthBtn" class="mode-btn text-left p-2.5 rounded-xl border border-cyan-400 bg-cyan-500/10 transition flex items-start gap-2.5">
+                        <div class="p-2 rounded-lg bg-cyan-500/20 text-cyan-300 mt-0.5">
+                            <i data-lucide="layers" class="w-4 h-4"></i>
                         </div>
                         <div>
-                            <div class="font-semibold text-sm text-white flex items-center gap-1.5">
-                                Карта глубины (Любой объект)
-                                <span class="text-[10px] px-1.5 py-0.2 bg-slate-700 text-slate-300 rounded mono">Рельеф</span>
+                            <div class="font-semibold text-xs sm:text-sm text-white flex items-center gap-1.5">
+                                Карта глубины (3D Рельеф)
+                                <span class="text-[10px] px-1.5 py-0.2 bg-cyan-500/30 text-cyan-200 rounded mono">10 800 тчк</span>
                             </div>
-                            <p class="text-xs text-slate-400 mt-0.5">Превращает любой предмет перед камерой в плотную 3D-сетку по карте высот и света.</p>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Строит плотную 3D-сетку любого объекта перед камерой + режим Ночного Видения.</p>
+                        </div>
+                    </button>
+
+                    <!-- 3D Лицо -->
+                    <button id="modeFaceBtn" class="mode-btn text-left p-2.5 rounded-xl border border-slate-700/80 bg-slate-900/50 hover:border-slate-600 transition flex items-start gap-2.5">
+                        <div class="p-2 rounded-lg bg-slate-800 text-slate-300 mt-0.5">
+                            <i data-lucide="scan-face" class="w-4 h-4"></i>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-xs sm:text-sm text-white flex items-center gap-1.5">
+                                3D Лицо (AI TrueDepth)
+                                <span class="text-[10px] px-1.5 py-0.2 bg-slate-700 text-slate-300 rounded mono">468 тчк</span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Нейросеть MediaPipe воссоздает 3D-маску лица по фронтальной камере.</p>
                         </div>
                     </button>
                 </div>
             </div>
 
-            <!-- Visualization Style Card -->
-            <div class="glass-panel rounded-2xl p-4 flex flex-col gap-3">
-                <span class="text-xs font-semibold uppercase tracking-wider text-cyan-400 mono">2. Стиль 3D-отображения</span>
-                <div class="grid grid-cols-2 gap-2">
-                    <button data-style="combined" class="style-btn px-3 py-2 rounded-xl border border-cyan-400 bg-cyan-500/15 text-xs font-medium text-white flex items-center gap-2 transition">
-                        <i data-lucide="cpu" class="w-4 h-4 text-cyan-400"></i>
+            <!-- 2. Стиль отображения и Ночное Видение -->
+            <div class="glass-panel rounded-2xl p-3.5 flex flex-col gap-2.5">
+                <span class="text-xs font-semibold uppercase tracking-wider text-cyan-400 mono">2. Отображение и ПНВ</span>
+                <div class="grid grid-cols-2 gap-1.5">
+                    <button data-style="combined" class="style-btn px-2.5 py-2 rounded-xl border border-cyan-400 bg-cyan-500/15 text-xs font-medium text-white flex items-center gap-1.5 transition">
+                        <i data-lucide="cpu" class="w-3.5 h-3.5 text-cyan-400"></i>
                         LiDAR Гибрид
                     </button>
-                    <button data-style="points" class="style-btn px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 hover:border-slate-500 flex items-center gap-2 transition">
-                        <i data-lucide="grip" class="w-4 h-4 text-emerald-400"></i>
+                    <button data-style="points" class="style-btn px-2.5 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 flex items-center gap-1.5 transition">
+                        <i data-lucide="grip" class="w-3.5 h-3.5 text-emerald-400"></i>
                         Облако точек
                     </button>
-                    <button data-style="wireframe" class="style-btn px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 hover:border-slate-500 flex items-center gap-2 transition">
-                        <i data-lucide="grid" class="w-4 h-4 text-sky-400"></i>
-                        3D Сетка (Wire)
+                    <button data-style="wireframe" class="style-btn px-2.5 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 flex items-center gap-1.5 transition">
+                        <i data-lucide="grid" class="w-3.5 h-3.5 text-sky-400"></i>
+                        3D Сетка
                     </button>
-                    <button data-style="solid" class="style-btn px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 hover:border-slate-500 flex items-center gap-2 transition">
-                        <i data-lucide="box" class="w-4 h-4 text-purple-400"></i>
-                        Полигоны (Mesh)
+                    <button data-style="solid" class="style-btn px-2.5 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 flex items-center gap-1.5 transition">
+                        <i data-lucide="box" class="w-3.5 h-3.5 text-purple-400"></i>
+                        Полигоны
                     </button>
                 </div>
 
-                <!-- Color Theme Selector -->
-                <div class="pt-2 border-t border-slate-800 flex items-center justify-between">
-                    <span class="text-xs text-slate-400">Цветовая схема:</span>
-                    <div class="flex items-center gap-1.5">
-                        <button data-color="lidar" class="color-btn px-2.5 py-1 rounded-lg text-[11px] font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-400/50">Циан LiDAR</button>
-                        <button data-color="heatmap" class="color-btn px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">Тепловая Z</button>
-                        <button data-color="rgb" class="color-btn px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">Цвет камеры</button>
+                <!-- Цветовая схема (включая Ночное видение) -->
+                <div class="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-1">
+                    <span class="text-[11px] text-slate-400">Палитра:</span>
+                    <div class="flex flex-wrap items-center gap-1">
+                        <button data-color="lidar" class="color-btn px-2 py-1 rounded-lg text-[10px] font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-400/50">Циан</button>
+                        <button data-color="night" class="color-btn px-2 py-1 rounded-lg text-[10px] font-medium bg-slate-800 text-emerald-300 border border-slate-700">ПНВ ИК</button>
+                        <button data-color="heatmap" class="color-btn px-2 py-1 rounded-lg text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">Тепловая</button>
+                        <button data-color="rgb" class="color-btn px-2 py-1 rounded-lg text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700">RGB</button>
                     </div>
                 </div>
             </div>
 
-            <!-- Geometry Parameters Card -->
-            <div class="glass-panel rounded-2xl p-4 flex flex-col gap-3.5">
-                <span class="text-xs font-semibold uppercase tracking-wider text-cyan-400 mono">3. Калибровка глубины (Z-Sensor)</span>
+            <!-- 3. Калибровка глубины и усиления ПНВ -->
+            <div class="glass-panel rounded-2xl p-3.5 flex flex-col gap-2.5">
+                <span class="text-xs font-semibold uppercase tracking-wider text-cyan-400 mono">3. Калибровка Z и ИК-Усиление</span>
 
-                <!-- Depth Extrusion -->
                 <div class="flex flex-col gap-1">
                     <div class="flex justify-between text-xs">
                         <span class="text-slate-300">Множитель глубины (Z-Scale)</span>
@@ -305,191 +331,177 @@
                     <input id="sliderDepthScale" type="range" min="0.3" max="3.5" step="0.1" value="1.5">
                 </div>
 
-                <!-- Point Size -->
                 <div class="flex flex-col gap-1">
                     <div class="flex justify-between text-xs">
-                        <span class="text-slate-300">Размер точек лазера</span>
-                        <span id="valPointSize" class="mono text-cyan-400">3.0 px</span>
+                        <span class="text-slate-300">Усиление света ПНВ (Night Gain)</span>
+                        <span id="valNightGain" class="mono text-emerald-400">3.5x</span>
                     </div>
-                    <input id="sliderPointSize" type="range" min="1.0" max="8.0" step="0.5" value="3.0">
+                    <input id="sliderNightGain" type="range" min="1.0" max="8.0" step="0.5" value="3.5">
                 </div>
 
-                <!-- Grid Resolution (For Depth Relief Mode) -->
-                <div id="resolutionControlGroup" class="flex flex-col gap-1 opacity-60">
+                <div id="resolutionControlGroup" class="flex flex-col gap-1">
                     <div class="flex justify-between text-xs">
-                        <span class="text-slate-300">Плотность сетки рельефа</span>
-                        <span id="valResolution" class="mono text-cyan-400">72×54</span>
+                        <span class="text-slate-300">Плотность сетки</span>
+                        <span id="valResolution" class="mono text-cyan-400">120×90</span>
                     </div>
-                    <input id="sliderResolution" type="range" min="32" max="120" step="8" value="72">
+                    <input id="sliderResolution" type="range" min="48" max="128" step="8" value="120">
                 </div>
 
-                <!-- Background Cutoff (Threshold) -->
                 <div class="flex flex-col gap-1">
                     <div class="flex justify-between text-xs">
-                        <span class="text-slate-300">Отсечение дальнего фона</span>
-                        <span id="valThreshold" class="mono text-cyan-400">10%</span>
+                        <span class="text-slate-300">Отсечение фона</span>
+                        <span id="valThreshold" class="mono text-cyan-400">8%</span>
                     </div>
-                    <input id="sliderThreshold" type="range" min="0" max="60" step="2" value="10">
+                    <input id="sliderThreshold" type="range" min="0" max="60" step="2" value="8">
                 </div>
 
-                <!-- Invert Z toggle -->
                 <label class="flex items-center justify-between pt-1 border-t border-slate-800 cursor-pointer">
-                    <span class="text-xs text-slate-300">Инвертировать выпуклость (Z-Invert)</span>
+                    <span class="text-xs text-slate-300">Инвертировать ось Z</span>
                     <input id="chkInvertZ" type="checkbox" class="w-4 h-4 accent-cyan-400 rounded cursor-pointer">
                 </label>
+            </div>
+
+            <!-- Компактная строка экспорта в самом низу -->
+            <div class="glass-panel rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+                <span class="text-xs text-slate-400 flex items-center gap-1.5">
+                    <i data-lucide="download" class="w-3.5 h-3.5 text-emerald-400"></i>
+                    Экспорт 3D:
+                </span>
+                <div class="flex items-center gap-1.5">
+                    <button id="btnExportOBJ" class="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-[11px] font-semibold mono transition">
+                        .OBJ
+                    </button>
+                    <button id="btnExportPLY" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-[11px] font-semibold mono transition">
+                        .PLY
+                    </button>
+                </div>
             </div>
 
         </div>
     </main>
 
-    <!-- Notification Toast -->
-    <div id="toast" class="fixed bottom-5 right-5 z-50 hidden glass-panel border-cyan-400/50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-xs sm:text-sm text-white transition-all">
-        <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400 shrink-0"></i>
-        <span id="toastMsg">Операция выполнена</span>
+    <!-- Уведомление -->
+    <div id="toast" class="fixed bottom-4 right-4 z-50 hidden glass-panel border-cyan-400/50 px-3.5 py-2.5 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs text-white transition-all">
+        <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+        <span id="toastMsg">Готово</span>
     </div>
 
-    <!-- Modal: Technical Info about TrueDepth in Browser -->
+    <!-- Модальное окно справки -->
     <div id="infoModal" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-        <div class="glass-panel max-w-lg w-full rounded-2xl p-5 sm:p-6 border border-cyan-500/30 shadow-2xl space-y-4">
-            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div class="flex items-center gap-2.5">
-                    <i data-lucide="cpu" class="w-5 h-5 text-cyan-400"></i>
-                    <h3 class="font-bold text-base sm:text-lg text-white">Как работает 3D-сканер в браузере?</h3>
+        <div class="glass-panel max-w-md w-full rounded-2xl p-5 border border-cyan-500/30 shadow-2xl space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="radar" class="w-5 h-5 text-emerald-400"></i>
+                    <h3 class="font-bold text-sm sm:text-base text-white">Реальный LiDAR в XRViewer и ПНВ</h3>
                 </div>
                 <button id="btnCloseModal" class="p-1 rounded-lg text-slate-400 hover:text-white">
-                    <i data-lucide="x" class="w-5 h-5"></i>
+                    <i data-lucide="x" class="w-4 h-4"></i>
                 </button>
             </div>
-
-            <div class="space-y-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
+            <div class="space-y-2.5 text-xs text-slate-300 leading-relaxed">
                 <p>
-                    <strong class="text-cyan-300">1. Почему Safari не отдает сырой ИК-поток Face ID?</strong><br>
-                    Apple закрыла доступ к аппаратному массиву точек <em>TrueDepth</em> для веб-сайтов по соображениям биометрической безопасности (он доступен только приложениям из App Store через <code>ARKit</code>).
+                    <strong class="text-emerald-300">1. Как включить настоящий LiDAR в XRViewer:</strong><br>
+                    Нажмите зеленую кнопку <strong>«LiDAR (XR)»</strong> сверху. Браузер XRViewer запустит сессию <code>immersive-ar</code> с доступом к лазерному дальномеру ARKit. Наводите прицел на стены, потолок или объекты — лазерные лучи будут собирать реальные 3D-точки в метрах. По завершении нажмите <strong>«Готово (В 3D)»</strong>, чтобы осмотреть скан и скачать <code>.OBJ</code> или <code>.PLY</code>.
                 </p>
                 <p>
-                    <strong class="text-cyan-300">2. Решение №1 — ИИ-реконструкция (Режим «3D Лицо»):</strong><br>
-                    Мы используем нейросеть <strong>Google MediaPipe Face Mesh</strong>, которая по обычному видеопотоку с фронтальной камеры предсказывает <strong>468 трехмерных точек (X, Y, Z)</strong> вашего лица с миллиметровой точностью — визуально и геометрически это работает как настоящий датчик Face ID!
-                </p>
-                <p>
-                    <strong class="text-cyan-300">3. Решение №2 — Карта рельефа (Режим «Карта глубины»):</strong><br>
-                    Для любых других предметов (кружка, рука, статуэтка) алгоритм анализирует освещенность и локальный градиент пикселей, выдавливая 3D-рельеф в реальном времени. Поднесите предмет ближе к камере на хорошо освещенном фоне, нажмите <strong>«Зафиксировать 3D скан»</strong> и скачайте файл <code>.OBJ</code>!
+                    <strong class="text-cyan-300">2. Режим Ночного Видения (кнопка «ПНВ»):</strong><br>
+                    Многократно усиливает слабый свет камеры, выделяет контуры объектов (ИК-фильтр Sobel) и строит 3D-рельеф даже в темном помещении. В режиме LiDAR позволяет видеть геометрию комнаты в полной темноте.
                 </p>
             </div>
-
-            <div class="pt-2 flex justify-end">
-                <button id="btnCloseModalBottom" class="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-semibold text-xs hover:bg-cyan-400 transition">
-                    Понятно, к сканированию!
+            <div class="pt-1 flex justify-end">
+                <button id="btnCloseModalBottom" class="px-4 py-1.5 rounded-xl bg-cyan-500 text-slate-950 font-semibold text-xs">
+                    Понятно
                 </button>
             </div>
         </div>
     </div>
 
     <script>
-        // Initialize Lucide icons
         lucide.createIcons();
 
         // ==========================================
-        // APPLICATION STATE
+        // СОСТОЯНИЕ ПРИЛОЖЕНИЯ
         // ==========================================
         const state = {
-            mode: 'face',           // 'face' | 'depth'
+            mode: 'depth',          // 'depth' | 'face' | 'lidar'
             vizStyle: 'combined',   // 'combined' | 'points' | 'wireframe' | 'solid'
-            colorTheme: 'lidar',    // 'lidar' | 'heatmap' | 'rgb'
+            colorTheme: 'lidar',    // 'lidar' | 'night' | 'heatmap' | 'rgb'
+            nightVision: false,
+            nightGain: 3.5,
             depthScale: 1.5,
-            pointSize: 3.0,
-            gridResX: 72,
-            gridResY: 54,
-            bgThreshold: 0.10,
+            pointSize: 2.5,
+            gridResX: 120,
+            gridResY: 90,
+            bgThreshold: 0.08,
             invertZ: false,
             isCameraActive: false,
-            facingMode: 'user',     // 'user' (front) | 'environment' (back)
+            facingMode: 'environment', // По умолчанию задняя камера (где стоит LiDAR)
             isFrozen: false,
             autoRotate: false,
             faceDetected: false,
             lastLandmarks: null,
-            simTime: 0
+            simTime: 0,
+            // Накопленное реальное облако точек от WebXR LiDAR
+            xrPoints: [],
+            xrSession: null
         };
 
-        // DOM Elements
         const videoEl = document.getElementById('webcamVideo');
         const pipCanvas = document.getElementById('pipCanvas');
         const pipCtx = pipCanvas.getContext('2d', { willReadFrequently: true });
-        const statusBadge = document.getElementById('statusBadge');
         const hudModeLabel = document.getElementById('hudModeLabel');
         const hudVertices = document.getElementById('hudVertices');
         const hudFps = document.getElementById('hudFps');
         const pipSourceLabel = document.getElementById('pipSourceLabel');
+        const pipRightBadge = document.getElementById('pipRightBadge');
 
         pipCanvas.width = 240;
         pipCanvas.height = 180;
 
-        // Offscreen canvas for sampling depth colors/luminance
         const sampleCanvas = document.createElement('canvas');
         const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
 
-        // Toast Helper
         function showToast(message) {
             const toast = document.getElementById('toast');
             document.getElementById('toastMsg').textContent = message;
             toast.classList.remove('hidden');
             clearTimeout(window._toastTimer);
-            window._toastTimer = setTimeout(() => {
-                toast.classList.add('hidden');
-            }, 3400);
-        }
-
-        // Update Status Badge
-        function setStatus(text, color = 'emerald') {
-            const colors = {
-                emerald: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
-                cyan: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-                amber: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-            };
-            statusBadge.className = `mono text-[11px] px-2 py-0.5 rounded-full border flex items-center gap-1 ${colors[color] || colors.emerald}`;
-            statusBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>${text}`;
+            window._toastTimer = setTimeout(() => toast.classList.add('hidden'), 3200);
         }
 
         // ==========================================
-        // THREE.JS 3D SCENE INITIALIZATION
+        // ИНИЦИАЛИЗАЦИЯ 3D СЦЕНЫ THREE.JS
         // ==========================================
         const container = document.getElementById('threeContainer');
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x050811, 0.08);
+        scene.fog = new THREE.FogExp2(0x050811, 0.07);
 
-        const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
-        camera.position.set(0, 0, 4.2);
+        const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.05, 100);
+        camera.position.set(0, 0, 4.0);
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
         renderer.setSize(container.clientWidth, container.clientHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.xr.enabled = true;
         container.appendChild(renderer.domElement);
 
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.06;
-        controls.maxDistance = 12;
-        controls.minDistance = 1.2;
 
-        // Lighting for Solid Mesh Mode
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         scene.add(ambientLight);
 
         const dirLight1 = new THREE.DirectionalLight(0x00f5d4, 0.9);
         dirLight1.position.set(2, 3, 4);
         scene.add(dirLight1);
 
-        const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.5);
-        dirLight2.position.set(-3, -2, 2);
-        scene.add(dirLight2);
-
-        // Futuristic Reference Grid Floor
         const gridHelper = new THREE.GridHelper(6, 24, 0x00f5d4, 0x1e293b);
         gridHelper.position.y = -1.45;
         gridHelper.material.opacity = 0.35;
         gridHelper.material.transparent = true;
         scene.add(gridHelper);
 
-        // Scan Group holding Points + Wireframe + Solid Mesh
         const scanGroup = new THREE.Group();
         scene.add(scanGroup);
 
@@ -498,9 +510,8 @@
         let meshObj = null;
         let wireObj = null;
 
-        // Materials
         const pointsMaterial = new THREE.PointsMaterial({
-            size: 0.032,
+            size: 0.025,
             vertexColors: true,
             transparent: true,
             opacity: 0.95
@@ -510,7 +521,7 @@
             vertexColors: true,
             wireframe: true,
             transparent: true,
-            opacity: 0.35
+            opacity: 0.32
         });
 
         const solidMaterial = new THREE.MeshStandardMaterial({
@@ -521,7 +532,6 @@
             flatShading: true
         });
 
-        // Build or Rebuild Three.js Buffers for a given vertex count & index list
         function rebuildThreeObjects(numVertices, indicesArray) {
             if (pointsObj) scanGroup.remove(pointsObj);
             if (meshObj) scanGroup.remove(meshObj);
@@ -553,62 +563,39 @@
         function updateVisualizationStyle() {
             if (!pointsObj || !wireObj || !meshObj) return;
             const st = state.vizStyle;
-            pointsObj.visible = (st === 'points' || st === 'combined');
-            wireObj.visible = (st === 'wireframe' || st === 'combined');
-            meshObj.visible = (st === 'solid');
+            const hasIndices = !!geometry.index;
+            pointsObj.visible = (st === 'points' || st === 'combined' || !hasIndices);
+            wireObj.visible = hasIndices && (st === 'wireframe' || st === 'combined');
+            meshObj.visible = hasIndices && (st === 'solid');
 
-            if (st === 'wireframe') {
-                wireMaterial.opacity = 0.85;
-            } else {
-                wireMaterial.opacity = 0.30;
-            }
-            pointsMaterial.size = state.pointSize * 0.011;
+            wireMaterial.opacity = st === 'wireframe' ? 0.85 : 0.30;
+            pointsMaterial.size = state.pointSize * 0.01;
         }
 
         // ==========================================
-        // PROCEDURAL FACE TOPOLOGY & SYMMETRIC TRIANGULATION
+        // ТОПОЛОГИЯ ЛИЦА И СЕТКИ ГЛУБИНЫ
         // ==========================================
-        // Builds a clean Delaunay-like grid or uses canonical face triangulation
         const FACE_VERTS = 468;
         let faceTriangles = [];
-
-        // Generate synthetic 3D biometric head vertices (used as fallback or before camera starts)
         const syntheticFaceBase = [];
+
         function initFaceGeometry() {
             syntheticFaceBase.length = 0;
-            // Create 468 structured points mapped to a realistic human face mask
-            const cols = 26;
-            const rows = 18; // 26 * 18 = 468 vertices!
+            const cols = 26, rows = 18;
             for (let r = 0; r < rows; r++) {
                 for (let c = 0; c < cols; c++) {
-                    const u = (c / (cols - 1)) * 2 - 1; // -1 to 1
-                    const v = (r / (rows - 1)) * 2 - 1; // -1 to 1
-
-                    // Elliptical face contour shaping
+                    const u = (c / (cols - 1)) * 2 - 1;
+                    const v = (r / (rows - 1)) * 2 - 1;
                     const radius = Math.sqrt(u * u * 1.15 + v * v * 0.85);
                     const maskFactor = Math.max(0, 1 - Math.pow(radius, 2.2));
-
-                    // Base cranium + cheeks + nose + eye sockets + lips
                     let z = maskFactor * 0.55;
-                    // Nose ridge
                     z += Math.exp(-(u * u) / 0.025 - Math.pow(v - 0.05, 2) / 0.12) * 0.28;
-                    // Eye sockets (indentations)
                     z -= Math.exp(-Math.pow(Math.abs(u) - 0.32, 2) / 0.03 - Math.pow(v - 0.22, 2) / 0.025) * 0.14;
-                    // Brow ridge
-                    z += Math.exp(-Math.pow(Math.abs(u) - 0.30, 2) / 0.06 - Math.pow(v - 0.38, 2) / 0.015) * 0.07;
-                    // Lips / mouth contour
-                    z += Math.exp(-(u * u) / 0.08 - Math.pow(v + 0.36, 2) / 0.015) * 0.10;
-                    // Chin
-                    z += Math.exp(-(u * u) / 0.09 - Math.pow(v + 0.68, 2) / 0.04) * 0.08;
-
                     const x = u * 0.82 * (0.92 + 0.08 * Math.cos(v * 1.2));
                     const y = v * 1.05;
-
-                    syntheticFaceBase.push({ x, y, z, u, v, r, c });
+                    syntheticFaceBase.push({ x, y, z, u, v });
                 }
             }
-
-            // Build triangle indices for the 26x18 structured mesh (or nearest-neighbor triangulation for live landmarks)
             faceTriangles = [];
             for (let r = 0; r < rows - 1; r++) {
                 for (let c = 0; c < cols - 1; c++) {
@@ -616,104 +603,336 @@
                     const i1 = i0 + 1;
                     const i2 = (r + 1) * cols + c;
                     const i3 = i2 + 1;
-                    faceTriangles.push(i0, i2, i1);
-                    faceTriangles.push(i1, i2, i3);
+                    faceTriangles.push(i0, i2, i1, i1, i2, i3);
                 }
             }
         }
         initFaceGeometry();
 
-        // Dynamic K-Nearest / Delaunay-style triangulation for MediaPipe 468 landmarks
-        let mpTrianglesComputed = false;
-        let mpTriangles = [];
-
-        function computeMediaPipeTriangles(landmarks) {
-            // Compute 2D bowyer-watson / gift-wrapping style local triangles once from canonical landmark layout
-            const tris = [];
-            const N = Math.min(landmarks.length, FACE_VERTS);
-            // For each vertex, connect to closest neighbors forming acute triangles with max edge threshold
-            const maxDistSq = 0.012;
-            for (let i = 0; i < N; i++) {
-                const p1 = landmarks[i];
-                const neighbors = [];
-                for (let j = i + 1; j < N; j++) {
-                    const p2 = landmarks[j];
-                    const dx = p1.x - p2.x;
-                    const dy = p1.y - p2.y;
-                    const d2 = dx * dx + dy * dy;
-                    if (d2 < maxDistSq) {
-                        neighbors.push({ idx: j, d2 });
-                    }
-                }
-                neighbors.sort((a, b) => a.d2 - b.d2);
-                const limit = Math.min(neighbors.length, 4);
-                for (let a = 0; a < limit; a++) {
-                    for (let b = a + 1; b < limit; b++) {
-                        const n1 = landmarks[neighbors[a].idx];
-                        const n2 = landmarks[neighbors[b].idx];
-                        const dx = n1.x - n2.x;
-                        const dy = n1.y - n2.y;
-                        if (dx * dx + dy * dy < maxDistSq) {
-                            tris.push(i, neighbors[a].idx, neighbors[b].idx);
-                        }
-                    }
-                }
-            }
-            mpTriangles = tris;
-            mpTrianglesComputed = true;
-        }
-
-        // ==========================================
-        // DEPTH MATRIX (MODE 2) INITIALIZATION
-        // ==========================================
         function initDepthGridGeometry() {
             const rx = state.gridResX;
             const ry = state.gridResY;
-            const numVerts = rx * ry;
             const indices = [];
-
             for (let y = 0; y < ry - 1; y++) {
                 for (let x = 0; x < rx - 1; x++) {
                     const i0 = y * rx + x;
                     const i1 = i0 + 1;
                     const i2 = (y + 1) * rx + x;
                     const i3 = i2 + 1;
-                    indices.push(i0, i2, i1);
-                    indices.push(i1, i2, i3);
+                    indices.push(i0, i2, i1, i1, i2, i3);
                 }
             }
-            rebuildThreeObjects(numVerts, indices);
+            rebuildThreeObjects(rx * ry, indices);
         }
 
-        // Start in Mode 1 (Face)
-        rebuildThreeObjects(FACE_VERTS, faceTriangles);
+        // Запуск по умолчанию в режиме Карты Глубины (120x90 = 10 800 вершин)
+        initDepthGridGeometry();
 
         // ==========================================
-        // COLOR MAPPING HELPER
+        // ЦВЕТОВАЯ СХЕМА (ВКЛЮЧАЯ НОЧНОЕ ВИДЕНИЕ ПНВ)
         // ==========================================
-        function computeVertexColor(normZ, r = 0, g = 245, b = 212) {
-            // normZ in [0, 1]
+        function computeVertexColor(normZ, r = 0, g = 245, b = 212, edgeStrength = 0) {
             const clamped = Math.max(0, Math.min(1, normZ));
-            if (state.colorTheme === 'lidar') {
-                // Deep blue/teal to bright neon cyan-emerald
+            if (state.nightVision || state.colorTheme === 'night') {
+                // Фосфорный зеленый ПНВ с подсветкой ИК-граней
+                const boost = Math.min(1, clamped * 0.85 + edgeStrength * 0.6);
+                return [
+                    0.02 + boost * 0.18,
+                    0.22 + boost * 0.78,
+                    0.05 + boost * 0.22
+                ];
+            } else if (state.colorTheme === 'lidar') {
                 return [
                     0.02 + clamped * 0.15,
                     0.35 + clamped * 0.65,
                     0.55 + clamped * 0.40
                 ];
             } else if (state.colorTheme === 'heatmap') {
-                // Thermal Depth Heatmap (Blue -> Cyan -> Green -> Yellow -> Red)
-                const h = (1.0 - clamped) * 240; // 240deg (blue) to 0deg (red)
+                const h = (1.0 - clamped) * 240;
                 const c = new THREE.Color().setHSL(h / 360, 0.95, 0.52);
                 return [c.r, c.g, c.b];
             } else {
-                // Camera RGB
                 return [r / 255, g / 255, b / 255];
             }
         }
 
+        // Переключение режима Ночного Видения
+        function toggleNightVision(forceState) {
+            state.nightVision = typeof forceState === 'boolean' ? forceState : !state.nightVision;
+            const btn = document.getElementById('btnNightVision');
+            const nvOverlay = document.getElementById('nvViewportOverlay');
+            const pipLaser = document.getElementById('pipLaser');
+
+            if (state.nightVision) {
+                state.colorTheme = 'night';
+                btn.className = 'px-2.5 py-2 rounded-xl bg-emerald-500/25 text-emerald-300 border border-emerald-400 text-xs font-semibold flex items-center gap-1.5 transition shadow-lg';
+                nvOverlay.classList.remove('hidden');
+                pipLaser.classList.add('nv-laser');
+                pipRightBadge.textContent = 'NV-IR GAIN';
+                gridHelper.material.color.setHex(0x22c55e);
+                showToast('Режим Ночного Видения (ПНВ + ИК усиление) включен');
+            } else {
+                state.colorTheme = 'lidar';
+                btn.className = 'px-2.5 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition';
+                nvOverlay.classList.add('hidden');
+                pipLaser.classList.remove('nv-laser');
+                pipRightBadge.textContent = 'IR-DEPTH';
+                gridHelper.material.color.setHex(0x00f5d4);
+            }
+        }
+
         // ==========================================
-        // MEDIAPIPE FACE MESH SETUP
+        // РЕАЛЬНЫЙ LIDAR ЧЕРЕЗ WEBXR (ДЛЯ XRVIEWER НА IOS И ANDROID AR)
+        // ==========================================
+        const MAX_XR_POINTS = 30000;
+        let xrCloudGeometry = null;
+        let xrCloudPoints = null;
+        let xrHitTestSource = null;
+        let xrRefSpace = null;
+        let xrViewerSpace = null;
+
+        function initXRPointCloudInScene() {
+            if (xrCloudPoints) scene.remove(xrCloudPoints);
+            xrCloudGeometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(MAX_XR_POINTS * 3);
+            const colors = new Float32Array(MAX_XR_POINTS * 3);
+            xrCloudGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            xrCloudGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            xrCloudGeometry.setDrawRange(0, 0);
+
+            const mat = new THREE.PointsMaterial({
+                size: 0.018,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.95
+            });
+            xrCloudPoints = new THREE.Points(xrCloudGeometry, mat);
+            xrCloudPoints.frustumCulled = false;
+            scene.add(xrCloudPoints);
+        }
+
+        function addRealLiDARPoint(x, y, z, distMeters) {
+            if (state.xrPoints.length >= MAX_XR_POINTS) {
+                state.xrPoints.shift();
+            }
+            // Фильтр дубликатов в радиусе 1.5 см
+            const len = state.xrPoints.length;
+            for (let i = Math.max(0, len - 120); i < len; i++) {
+                const p = state.xrPoints[i];
+                const d2 = (p.x - x) ** 2 + (p.y - y) ** 2 + (p.z - z) ** 2;
+                if (d2 < 0.00022) return;
+            }
+
+            const norm = Math.max(0, Math.min(1, 1 - (distMeters / 4.0)));
+            const [cr, cg, cb] = computeVertexColor(norm, 34, 245, 180, 0.5);
+            state.xrPoints.push({ x, y, z, r: cr, g: cg, b: cb });
+
+            if (xrCloudGeometry) {
+                const idx = state.xrPoints.length - 1;
+                const posArr = xrCloudGeometry.attributes.position.array;
+                const colArr = xrCloudGeometry.attributes.color.array;
+                posArr[idx * 3] = x;
+                posArr[idx * 3 + 1] = y;
+                posArr[idx * 3 + 2] = z;
+                colArr[idx * 3] = cr;
+                colArr[idx * 3 + 1] = cg;
+                colArr[idx * 3 + 2] = cb;
+                xrCloudGeometry.attributes.position.needsUpdate = true;
+                xrCloudGeometry.attributes.color.needsUpdate = true;
+                xrCloudGeometry.setDrawRange(0, state.xrPoints.length);
+            }
+
+            document.getElementById('xrPointCount').textContent = state.xrPoints.length.toLocaleString('ru-RU');
+        }
+
+        async function startRealLiDARSession() {
+            if (!navigator.xr) {
+                showToast('WebXR не найден! Откройте страницу в приложении WebXR Viewer на iPhone.');
+                startCamera();
+                return;
+            }
+
+            try {
+                // Останавливаем обычную камеру, чтобы освободить сенсор для ARKit LiDAR
+                if (videoEl.srcObject) {
+                    videoEl.srcObject.getTracks().forEach(t => t.stop());
+                    state.isCameraActive = false;
+                }
+
+                const xrHud = document.getElementById('xrHudOverlay');
+                xrHud.classList.remove('hidden');
+
+                // Конфигурация совместимая с Mozilla XRViewer (iOS ARKit) и WebXR Depth/Hit-Test
+                const sessionInit = {
+                    optionalFeatures: ['hit-test', 'depth-sensing', 'dom-overlay', 'local-floor', 'world-sensing'],
+                    domOverlay: { root: xrHud }
+                };
+
+                const session = await navigator.xr.requestSession('immersive-ar', sessionInit);
+                state.xrSession = session;
+                state.mode = 'lidar';
+
+                scanGroup.visible = false;
+                gridHelper.visible = false;
+                scene.fog = null;
+
+                initXRPointCloudInScene();
+
+                renderer.xr.setReferenceSpaceType('local');
+                await renderer.xr.setSession(session);
+
+                xrRefSpace = await session.requestReferenceSpace('local');
+                xrViewerSpace = await session.requestReferenceSpace('viewer');
+
+                if (session.requestHitTestSource) {
+                    try {
+                        xrHitTestSource = await session.requestHitTestSource({ space: xrViewerSpace });
+                    } catch (e) {
+                        console.warn('Standard hitTestSource fallback:', e);
+                    }
+                }
+
+                session.addEventListener('end', () => {
+                    state.xrSession = null;
+                    xrHitTestSource = null;
+                    xrHud.classList.add('hidden');
+                    scanGroup.visible = true;
+                    gridHelper.visible = true;
+                    scene.fog = new THREE.FogExp2(0x050811, 0.07);
+                    if (xrCloudPoints) scene.remove(xrCloudPoints);
+
+                    // Переносим собранные реальные точки LiDAR в основной 3D вьюпорт для осмотра и экспорта
+                    if (state.xrPoints.length > 0) {
+                        bakeXRPointsToMainViewer();
+                        showToast(`Скан LiDAR завершен: ${state.xrPoints.length} реальных 3D-точек!`);
+                    }
+                });
+
+                showToast('ARKit LiDAR подключен! Наводите камеру на объекты.');
+            } catch (err) {
+                console.warn('Ошибка запуска WebXR AR:', err);
+                document.getElementById('xrHudOverlay').classList.add('hidden');
+                showToast('Не удалось запустить AR-сессию (' + err.message + '). Включаю камеру.');
+                startCamera();
+            }
+        }
+
+        // Превращает собранное облако LiDAR в 3D-модель в основном окне
+        function bakeXRPointsToMainViewer() {
+            const count = state.xrPoints.length;
+            if (count === 0) return;
+
+            rebuildThreeObjects(count, null);
+            const posAttr = geometry.attributes.position;
+            const colAttr = geometry.attributes.color;
+
+            // Центрируем облако точек
+            let cx = 0, cy = 0, cz = 0;
+            for (let i = 0; i < count; i++) {
+                cx += state.xrPoints[i].x;
+                cy += state.xrPoints[i].y;
+                cz += state.xrPoints[i].z;
+            }
+            cx /= count; cy /= count; cz /= count;
+
+            for (let i = 0; i < count; i++) {
+                const p = state.xrPoints[i];
+                posAttr.setXYZ(i, (p.x - cx) * 1.5, (p.y - cy) * 1.5, (p.z - cz) * 1.5);
+                colAttr.setXYZ(i, p.r, p.g, p.b);
+            }
+            posAttr.needsUpdate = true;
+            colAttr.needsUpdate = true;
+            state.isFrozen = true;
+            updateFreezeUI();
+            hudModeLabel.textContent = `РЕАЛЬНЫЙ LIDAR СКАН (${count} ТЧК)`;
+        }
+
+        // Веер из 25 лучей для XRViewer (использует iOS ARKit requestHitTest или WebXR hit-test)
+        let rayFanIndex = 0;
+        const rayFanOffsets = [];
+        for (let gy = -2; gy <= 2; gy++) {
+            for (let gx = -2; gx <= 2; gx++) {
+                rayFanOffsets.push({ x: gx * 0.12, y: gy * 0.12 });
+            }
+        }
+
+        function processXRFrameLiDAR( timestamp, xrFrame ) {
+            if (!xrFrame || !state.xrSession || !xrRefSpace) return;
+            const pose = xrFrame.getViewerPose(xrRefSpace);
+            if (!pose) return;
+
+            const camPos = pose.transform.position;
+
+            // 1. Стандартный WebXR Hit-Test (центр)
+            if (xrHitTestSource) {
+                const results = xrFrame.getHitTestResults(xrHitTestSource);
+                if (results.length > 0) {
+                    const hitPose = results[0].getPose(xrRefSpace);
+                    if (hitPose) {
+                        const hp = hitPose.transform.position;
+                        const dist = Math.hypot(hp.x - camPos.x, hp.y - camPos.y, hp.z - camPos.z);
+                        document.getElementById('xrCenterDist').textContent = dist.toFixed(2) + ' м';
+                        addRealLiDARPoint(hp.x, hp.y, hp.z, dist);
+                    }
+                }
+            }
+
+            // 2. Специфичный для iOS Mozilla XRViewer метод: session.requestHitTest(origin, direction, coordSystem)
+            if (typeof state.xrSession.requestHitTest === 'function') {
+                const view = pose.views[0];
+                const m = view.transform.matrix;
+                const origin = new Float32Array([camPos.x, camPos.y, camPos.z]);
+
+                // Запускаем по 3 луча из веера каждый кадр, чтобы быстро покрывать поверхность LiDAR-сеткой
+                for (let k = 0; k < 3; k++) {
+                    const off = rayFanOffsets[rayFanIndex % rayFanOffsets.length];
+                    rayFanIndex++;
+
+                    // Направление луча в системе координат камеры с небольшим отклонением
+                    const lx = off.x;
+                    const ly = off.y;
+                    const lz = -1.0;
+                    const wx = m[0] * lx + m[4] * ly + m[8] * lz;
+                    const wy = m[1] * lx + m[5] * ly + m[9] * lz;
+                    const wz = m[2] * lx + m[6] * ly + m[10] * lz;
+                    const len = Math.hypot(wx, wy, wz) || 1;
+                    const dir = new Float32Array([wx / len, wy / len, wz / len]);
+
+                    state.xrSession.requestHitTest(origin, dir, xrRefSpace).then((hits) => {
+                        if (hits && hits.length > 0) {
+                            const hitMatrix = hits[0].hitMatrix;
+                            if (hitMatrix) {
+                                const hx = hitMatrix[12];
+                                const hy = hitMatrix[13];
+                                const hz = hitMatrix[14];
+                                const dist = Math.hypot(hx - camPos.x, hy - camPos.y, hz - camPos.z);
+                                if (off.x === 0 && off.y === 0) {
+                                    document.getElementById('xrCenterDist').textContent = dist.toFixed(2) + ' м';
+                                }
+                                addRealLiDARPoint(hx, hy, hz, dist);
+                            }
+                        }
+                    }).catch(() => {});
+                }
+            }
+
+            // 3. WebXR Depth Sensing API (если поддерживается браузером)
+            const view = pose.views[0];
+            if (xrFrame.getDepthInformation && view) {
+                try {
+                    const depthInfo = xrFrame.getDepthInformation(view);
+                    if (depthInfo) {
+                        const centerD = depthInfo.getDepthInMeters(0.5, 0.5);
+                        if (centerD > 0) {
+                            document.getElementById('xrCenterDist').textContent = centerD.toFixed(2) + ' м';
+                        }
+                    }
+                } catch (e) {}
+            }
+        }
+
+        // ==========================================
+        // MEDIAPIPE FACE MESH
         // ==========================================
         let faceMesh = null;
         let isProcessingFrame = false;
@@ -733,28 +952,21 @@
                     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
                         state.lastLandmarks = results.multiFaceLandmarks[0];
                         state.faceDetected = true;
-                        if (!mpTrianglesComputed) {
-                            computeMediaPipeTriangles(state.lastLandmarks);
-                            if (state.mode === 'face') {
-                                rebuildThreeObjects(FACE_VERTS, mpTriangles);
-                            }
-                        }
                     } else {
                         state.faceDetected = false;
                     }
                 });
             } catch (err) {
-                console.warn('MediaPipe fallback active:', err);
+                console.warn('MediaPipe fallback:', err);
             }
         }
         initMediaPipeFaceMesh();
 
         // ==========================================
-        // CAMERA WEBRTC STREAM HANDLER
+        // ЗАПУСК КАМЕРЫ (С АВТО-ФОКУСОМ И ЗУМОМ ДЛЯ LIDAR)
         // ==========================================
         async function startCamera() {
             try {
-                setStatus('ЗАПУСК КАМЕРЫ...', 'amber');
                 if (videoEl.srcObject) {
                     videoEl.srcObject.getTracks().forEach(t => t.stop());
                 }
@@ -762,7 +974,7 @@
                 const constraints = {
                     audio: false,
                     video: {
-                        facingMode: state.facingMode,
+                        facingMode: { ideal: state.facingMode },
                         width: { ideal: 640 },
                         height: { ideal: 480 }
                     }
@@ -776,115 +988,31 @@
                 state.isFrozen = false;
                 updateFreezeUI();
 
-                document.getElementById('btnStartCamText').textContent = 'Камера активна';
-                pipSourceLabel.textContent = state.facingMode === 'user' ? 'LIVE TRUEDEPTH' : 'LIVE LIDAR CAM';
-                setStatus('СКАНИРОВАНИЕ АКТИВНО', 'cyan');
-                showToast('Камера подключена! Наведите на лицо или предмет.');
+                document.getElementById('btnStartCamText').textContent = 'Активна';
+                pipSourceLabel.textContent = state.facingMode === 'user' ? 'TRUEDEPTH' : 'REAR LIDAR';
+                pipCanvas.style.transform = state.facingMode === 'user' ? 'scaleX(-1)' : 'none';
+                showToast(state.facingMode === 'user' ? 'Фронтальная камера включена' : 'Задняя камера включена');
             } catch (err) {
-                console.warn('Webcam unavailable or denied, running interactive 3D simulation:', err);
                 state.isCameraActive = false;
-                pipSourceLabel.textContent = '3D СИМУЛЯЦИЯ';
-                setStatus('ДЕМО-СИМУЛЯТОР', 'amber');
-                showToast('Камера недоступна в превью — включен интерактивный 3D-симулятор датчика!');
+                pipSourceLabel.textContent = 'СИМУЛЯЦИЯ';
+                showToast('Камера недоступна — работает 3D-симулятор');
             }
         }
 
         // ==========================================
-        // REAL-TIME GEOMETRY UPDATE LOOP
+        // ОБНОВЛЕНИЕ 3D ГЕОМЕТРИИ И НОЧНОГО ВИДЕНИЯ В РЕАЛЬНОМ ВРЕМЕНИ
         // ==========================================
-        function updateFaceModeGeometry(dt) {
-            const posAttr = geometry.attributes.position;
-            const colAttr = geometry.attributes.color;
-            const posArr = posAttr.array;
-            const colArr = colAttr.array;
-            const zDir = state.invertZ ? -1 : 1;
-
-            // Sample webcam image for RGB mode & PiP display
-            let imgData = null;
-            if (state.isCameraActive && videoEl.readyState >= 2) {
-                sampleCanvas.width = 120;
-                sampleCanvas.height = 90;
-                sampleCtx.drawImage(videoEl, 0, 0, 120, 90);
-                imgData = sampleCtx.getImageData(0, 0, 120, 90).data;
-            }
-
-            if (state.isCameraActive && state.faceDetected && state.lastLandmarks) {
-                // Real MediaPipe 468 3D Facial Landmarks
-                const lm = state.lastLandmarks;
-                // Center face around nose tip (landmark #1)
-                const cx = lm[1].x;
-                const cy = lm[1].y;
-                const cz = lm[1].z;
-
-                for (let i = 0; i < FACE_VERTS; i++) {
-                    const pt = lm[i] || { x: 0.5, y: 0.5, z: 0 };
-                    const x = -(pt.x - cx) * 3.2; // Mirror horizontally for natural selfie view
-                    const y = -(pt.y - cy) * 3.2;
-                    const z = -(pt.z - cz) * 3.0 * state.depthScale * zDir;
-
-                    posArr[i * 3] = x;
-                    posArr[i * 3 + 1] = y;
-                    posArr[i * 3 + 2] = z;
-
-                    const normZ = (z + 0.6) / 1.2;
-                    let r = 0, g = 245, b = 212;
-                    if (imgData) {
-                        const px = Math.min(119, Math.max(0, Math.floor(pt.x * 120)));
-                        const py = Math.min(89, Math.max(0, Math.floor(pt.y * 90)));
-                        const idx = (py * 120 + px) * 4;
-                        r = imgData[idx];
-                        g = imgData[idx + 1];
-                        b = imgData[idx + 2];
-                    }
-                    const [cr, cg, cb] = computeVertexColor(normZ, r, g, b);
-                    colArr[i * 3] = cr;
-                    colArr[i * 3 + 1] = cg;
-                    colArr[i * 3 + 2] = cb;
-                }
-            } else {
-                // Interactive Procedural 3D Biometric Face (subtle breathing & head turn)
-                state.simTime += dt;
-                const yaw = Math.sin(state.simTime * 1.1) * 0.14;
-                const pitch = Math.cos(state.simTime * 0.8) * 0.06;
-                const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
-
-                for (let i = 0; i < FACE_VERTS; i++) {
-                    const base = syntheticFaceBase[i];
-                    // Subtle laser scanning wave effect
-                    const pulse = Math.sin(base.v * 6 - state.simTime * 4) * 0.012;
-                    const rawX = base.x;
-                    const rawY = base.y + pitch * 0.2;
-                    const rawZ = (base.z + pulse) * state.depthScale * zDir;
-
-                    // Rotate slightly around Y
-                    const rx = rawX * cosY + rawZ * sinY;
-                    const rz = -rawX * sinY + rawZ * cosY;
-
-                    posArr[i * 3] = rx;
-                    posArr[i * 3 + 1] = rawY;
-                    posArr[i * 3 + 2] = rz;
-
-                    const normZ = (rawZ + 0.2) / (0.85 * state.depthScale);
-                    const [cr, cg, cb] = computeVertexColor(normZ, 40, 220, 240);
-                    colArr[i * 3] = cr;
-                    colArr[i * 3 + 1] = cg;
-                    colArr[i * 3 + 2] = cb;
-                }
-            }
-
-            posAttr.needsUpdate = true;
-            colAttr.needsUpdate = true;
-            geometry.computeVertexNormals();
-        }
-
         function updateDepthReliefGeometry(dt) {
             const rx = state.gridResX;
             const ry = state.gridResY;
             const posAttr = geometry.attributes.position;
             const colAttr = geometry.attributes.color;
+            if (!posAttr || posAttr.count !== rx * ry) return;
+
             const posArr = posAttr.array;
             const colArr = colAttr.array;
             const zDir = state.invertZ ? -1 : 1;
+            const gain = state.nightVision ? state.nightGain : 1.0;
 
             sampleCanvas.width = rx;
             sampleCanvas.height = ry;
@@ -892,7 +1020,6 @@
             if (state.isCameraActive && videoEl.readyState >= 2) {
                 sampleCtx.drawImage(videoEl, 0, 0, rx, ry);
             } else {
-                // Draw synthetic 3D object relief onto sample canvas if camera is off
                 state.simTime += dt;
                 sampleCtx.fillStyle = '#050811';
                 sampleCtx.fillRect(0, 0, rx, ry);
@@ -910,34 +1037,46 @@
             const imgData = sampleCtx.getImageData(0, 0, rx, ry).data;
             const aspect = rx / ry;
 
+            // Предварительный расчет яркости с гамма-усилением для Ночного Видения
+            const lumGrid = new Float32Array(rx * ry);
+            for (let i = 0; i < rx * ry; i++) {
+                const pIdx = i * 4;
+                let lum = (0.299 * imgData[pIdx] + 0.587 * imgData[pIdx + 1] + 0.114 * imgData[pIdx + 2]) / 255;
+                if (state.nightVision) {
+                    // Нелинейное ПНВ-вытягивание темных участков
+                    lum = Math.min(1.0, Math.pow(lum, 0.55) * (gain * 0.45));
+                }
+                lumGrid[i] = lum;
+            }
+
             for (let y = 0; y < ry; y++) {
                 for (let x = 0; x < rx; x++) {
                     const i = y * rx + x;
-                    // Mirror X for natural interaction
-                    const srcX = (rx - 1) - x;
-                    const pIdx = (y * rx + srcX) * 4;
+                    const srcX = state.facingMode === 'user' ? (rx - 1) - x : x;
+                    const sIdx = y * rx + srcX;
+                    const pIdx = sIdx * 4;
 
-                    const r = imgData[pIdx];
-                    const g = imgData[pIdx + 1];
-                    const b = imgData[pIdx + 2];
+                    let lum = lumGrid[sIdx];
 
-                    // Perceived luminance (0..1)
-                    let lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-
-                    // Background threshold cutoff
-                    if (lum < state.bgThreshold) {
-                        lum = 0;
+                    // Вычисление локального градиента (Sobel Edge) для выделения контуров в темноте
+                    let edge = 0;
+                    if (x > 0 && x < rx - 1 && y > 0 && y < ry - 1) {
+                        const gx = lumGrid[y * rx + (srcX + 1)] - lumGrid[y * rx + (srcX - 1)];
+                        const gy = lumGrid[(y + 1) * rx + srcX] - lumGrid[(y - 1) * rx + srcX];
+                        edge = Math.min(1.0, Math.hypot(gx, gy) * 2.5);
                     }
+
+                    if (lum < state.bgThreshold) lum = 0;
 
                     const normX = (x / (rx - 1) - 0.5) * 2.4 * aspect;
                     const normY = -(y / (ry - 1) - 0.5) * 2.4;
-                    const z = (lum - 0.25) * 1.15 * state.depthScale * zDir;
+                    const z = ((lum + edge * 0.25) - 0.25) * 1.15 * state.depthScale * zDir;
 
                     posArr[i * 3] = normX;
                     posArr[i * 3 + 1] = normY;
                     posArr[i * 3 + 2] = z;
 
-                    const [cr, cg, cb] = computeVertexColor(lum, r, g, b);
+                    const [cr, cg, cb] = computeVertexColor(lum, imgData[pIdx], imgData[pIdx + 1], imgData[pIdx + 2], edge);
                     colArr[i * 3] = cr;
                     colArr[i * 3 + 1] = cg;
                     colArr[i * 3 + 2] = cb;
@@ -949,7 +1088,65 @@
             geometry.computeVertexNormals();
         }
 
-        // Draw PiP Live HUD Preview
+        function updateFaceModeGeometry(dt) {
+            const posAttr = geometry.attributes.position;
+            const colAttr = geometry.attributes.color;
+            if (!posAttr || posAttr.count !== FACE_VERTS) return;
+
+            const posArr = posAttr.array;
+            const colArr = colAttr.array;
+            const zDir = state.invertZ ? -1 : 1;
+
+            if (state.isCameraActive && state.faceDetected && state.lastLandmarks) {
+                const lm = state.lastLandmarks;
+                const cx = lm[1].x, cy = lm[1].y, cz = lm[1].z;
+
+                for (let i = 0; i < FACE_VERTS; i++) {
+                    const pt = lm[i] || { x: 0.5, y: 0.5, z: 0 };
+                    const x = -(pt.x - cx) * 3.2;
+                    const y = -(pt.y - cy) * 3.2;
+                    const z = -(pt.z - cz) * 3.0 * state.depthScale * zDir;
+
+                    posArr[i * 3] = x;
+                    posArr[i * 3 + 1] = y;
+                    posArr[i * 3 + 2] = z;
+
+                    const normZ = (z + 0.6) / 1.2;
+                    const [cr, cg, cb] = computeVertexColor(normZ, 40, 235, 200);
+                    colArr[i * 3] = cr;
+                    colArr[i * 3 + 1] = cg;
+                    colArr[i * 3 + 2] = cb;
+                }
+            } else {
+                state.simTime += dt;
+                const yaw = Math.sin(state.simTime * 1.1) * 0.14;
+                const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+
+                for (let i = 0; i < FACE_VERTS; i++) {
+                    const base = syntheticFaceBase[i];
+                    const pulse = Math.sin(base.v * 6 - state.simTime * 4) * 0.012;
+                    const rawZ = (base.z + pulse) * state.depthScale * zDir;
+                    const rx = base.x * cosY + rawZ * sinY;
+                    const rz = -base.x * sinY + rawZ * cosY;
+
+                    posArr[i * 3] = rx;
+                    posArr[i * 3 + 1] = base.y;
+                    posArr[i * 3 + 2] = rz;
+
+                    const normZ = (rawZ + 0.2) / (0.85 * state.depthScale);
+                    const [cr, cg, cb] = computeVertexColor(normZ, 40, 220, 240);
+                    colArr[i * 3] = cr;
+                    colArr[i * 3 + 1] = cg;
+                    colArr[i * 3 + 2] = cb;
+                }
+            }
+
+            posAttr.needsUpdate = true;
+            colAttr.needsUpdate = true;
+            geometry.computeVertexNormals();
+        }
+
+        // Отрисовка мини-окна камеры с поддержкой ПНВ-усиления
         function renderPiPHUD() {
             const w = pipCanvas.width;
             const h = pipCanvas.height;
@@ -957,23 +1154,27 @@
 
             if (state.isCameraActive && videoEl.readyState >= 2) {
                 pipCtx.drawImage(videoEl, 0, 0, w, h);
-                // Overlay subtle cyan LiDAR tint
-                pipCtx.fillStyle = 'rgba(0, 245, 212, 0.08)';
-                pipCtx.fillRect(0, 0, w, h);
 
-                // If in Face mode and landmarks detected, draw IR dots on PiP
-                if (state.mode === 'face' && state.faceDetected && state.lastLandmarks) {
-                    pipCtx.fillStyle = '#00f5d4';
-                    for (let i = 0; i < state.lastLandmarks.length; i += 3) {
-                        const pt = state.lastLandmarks[i];
-                        pipCtx.fillRect(pt.x * w - 1, pt.y * h - 1, 2, 2);
+                if (state.nightVision) {
+                    const frame = pipCtx.getImageData(0, 0, w, h);
+                    const d = frame.data;
+                    const gain = state.nightGain;
+                    for (let i = 0; i < d.length; i += 4) {
+                        const lum = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+                        const boosted = Math.min(255, Math.pow(lum / 255, 0.55) * 255 * (gain * 0.5));
+                        d[i] = boosted * 0.15;     // R
+                        d[i + 1] = boosted;        // G (Phosphor Green)
+                        d[i + 2] = boosted * 0.25; // B
                     }
+                    pipCtx.putImageData(frame, 0, 0);
+                } else {
+                    pipCtx.fillStyle = 'rgba(0, 245, 212, 0.08)';
+                    pipCtx.fillRect(0, 0, w, h);
                 }
             } else {
-                // Simulated IR Dot Matrix Preview
-                pipCtx.fillStyle = '#040814';
+                pipCtx.fillStyle = state.nightVision ? '#021206' : '#040814';
                 pipCtx.fillRect(0, 0, w, h);
-                pipCtx.fillStyle = 'rgba(0, 245, 212, 0.55)';
+                pipCtx.fillStyle = state.nightVision ? 'rgba(34, 197, 94, 0.65)' : 'rgba(0, 245, 212, 0.55)';
                 const cols = 18, rows = 14;
                 for (let r = 1; r < rows; r++) {
                     for (let c = 1; c < cols; c++) {
@@ -990,40 +1191,39 @@
         }
 
         // ==========================================
-        // MAIN ANIMATION LOOP
+        // ГЛАВНЫЙ ЦИКЛ РЕНДЕРИНГА (СОВМЕСТИМЫЙ С WEBXR)
         // ==========================================
         let lastFrameTime = performance.now();
         let frameCounter = 0;
         let fpsTimer = performance.now();
 
-        async function animateLoop(now) {
-            requestAnimationFrame(animateLoop);
-
+        renderer.setAnimationLoop((now, xrFrame) => {
             const dt = Math.min((now - lastFrameTime) / 1000, 0.1);
             lastFrameTime = now;
 
-            // FPS Counter
             frameCounter++;
             if (now - fpsTimer >= 500) {
-                const fps = Math.round((frameCounter * 1000) / (now - fpsTimer));
-                hudFps.textContent = Math.min(60, fps);
+                hudFps.textContent = Math.min(60, Math.round((frameCounter * 1000) / (now - fpsTimer)));
                 frameCounter = 0;
                 fpsTimer = now;
             }
 
-            // Send webcam frame to MediaPipe if in Face Mode
-            if (!state.isFrozen && state.isCameraActive && state.mode === 'face' && faceMesh && !isProcessingFrame && videoEl.readyState >= 2) {
-                isProcessingFrame = true;
-                faceMesh.send({ image: videoEl }).finally(() => {
-                    isProcessingFrame = false;
-                });
+            // Если активна реальная ARKit LiDAR сессия в XRViewer
+            if (state.xrSession && xrFrame) {
+                processXRFrameLiDAR(now, xrFrame);
+                renderer.render(scene, camera);
+                return;
             }
 
-            // Update 3D Geometry if not frozen
+            if (!state.isFrozen && state.isCameraActive && state.mode === 'face' && faceMesh && !isProcessingFrame && videoEl.readyState >= 2) {
+                isProcessingFrame = true;
+                faceMesh.send({ image: videoEl }).finally(() => { isProcessingFrame = false; });
+            }
+
             if (!state.isFrozen) {
                 if (state.mode === 'face') {
                     updateFaceModeGeometry(dt);
-                } else {
+                } else if (state.mode === 'depth') {
                     updateDepthReliefGeometry(dt);
                 }
                 renderPiPHUD();
@@ -1035,13 +1235,13 @@
 
             controls.update();
             renderer.render(scene, camera);
-        }
+        });
 
         // ==========================================
-        // 3D MODEL EXPORT (.OBJ AND .PLY)
+        // ЭКСПОРТ .OBJ И .PLY
         // ==========================================
-        function triggerDownload(content, filename, mimeType = 'text/plain') {
-            const blob = new Blob([content], { type: mimeType });
+        function triggerDownload(content, filename) {
+            const blob = new Blob([content], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -1059,8 +1259,8 @@
             const count = posAttr.count;
 
             let lines = [
-                '# TrueDepth & LiDAR Web 3D Studio Export',
-                `# Mode: ${state.mode.toUpperCase()} | Vertices: ${count}`,
+                '# 3D LiDAR & Depth Studio Export',
+                `# Vertices: ${count}`,
                 'o ScanModel_3D'
             ];
 
@@ -1077,16 +1277,13 @@
             if (indexAttr) {
                 const idxArr = indexAttr.array;
                 for (let i = 0; i < idxArr.length; i += 3) {
-                    const a = idxArr[i] + 1;
-                    const b = idxArr[i + 1] + 1;
-                    const c = idxArr[i + 2] + 1;
-                    lines.push(`f ${a} ${b} ${c}`);
+                    lines.push(`f ${idxArr[i] + 1} ${idxArr[i + 1] + 1} ${idxArr[i + 2] + 1}`);
                 }
             }
 
-            const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-            triggerDownload(lines.join('\n'), `3d-scan-${state.mode}-${timestamp}.obj`);
-            showToast('3D-модель успешно экспортирована в формат .OBJ!');
+            triggerDownload(lines.join('
+'), `scan-${state.mode}-${Date.now()}.obj`);
+            showToast('Файл .OBJ сохранен!');
         }
 
         function exportToPLY() {
@@ -1094,10 +1291,9 @@
             const colAttr = geometry.attributes.color;
             const count = posAttr.count;
 
-            let header = [
+            let lines = [
                 'ply',
                 'format ascii 1.0',
-                'comment Generated by TrueDepth Web 3D Studio',
                 `element vertex ${count}`,
                 'property float x',
                 'property float y',
@@ -1108,7 +1304,6 @@
                 'end_header'
             ];
 
-            let body = [];
             for (let i = 0; i < count; i++) {
                 const x = posAttr.getX(i).toFixed(5);
                 const y = posAttr.getY(i).toFixed(5);
@@ -1116,102 +1311,129 @@
                 const r = Math.min(255, Math.max(0, Math.round(colAttr.getX(i) * 255)));
                 const g = Math.min(255, Math.max(0, Math.round(colAttr.getY(i) * 255)));
                 const b = Math.min(255, Math.max(0, Math.round(colAttr.getZ(i) * 255)));
-                body.push(`${x} ${y} ${z} ${r} ${g} ${b}`);
+                lines.push(`${x} ${y} ${z} ${r} ${g} ${b}`);
             }
 
-            const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-            triggerDownload(header.concat(body).join('\n'), `lidar-cloud-${state.mode}-${timestamp}.ply`);
-            showToast('Облако точек экспортировано в формат .PLY!');
+            triggerDownload(lines.join('
+'), `cloud-${state.mode}-${Date.now()}.ply`);
+            showToast('Облако точек .PLY сохранено!');
         }
 
         // ==========================================
-        // UI EVENT LISTENERS
+        // ОБРАБОТЧИКИ СОБЫТИЙ ИНТЕРФЕЙСА
         // ==========================================
         document.getElementById('btnStartCam').addEventListener('click', startCamera);
+        document.getElementById('btnStartLiDAR').addEventListener('click', startRealLiDARSession);
+        document.getElementById('btnNightVision').addEventListener('click', () => toggleNightVision());
 
         document.getElementById('btnSwitchCam').addEventListener('click', () => {
             state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
             startCamera();
         });
 
+        // Кнопки внутри WebXR HUD
+        document.getElementById('btnExitXR').addEventListener('click', () => {
+            if (state.xrSession) state.xrSession.end();
+        });
+        document.getElementById('btnClearXRCloud').addEventListener('click', () => {
+            state.xrPoints.length = 0;
+            if (xrCloudGeometry) xrCloudGeometry.setDrawRange(0, 0);
+            document.getElementById('xrPointCount').textContent = '0';
+        });
+        document.getElementById('btnXrNight').addEventListener('click', () => {
+            toggleNightVision();
+        });
+
         function updateFreezeUI() {
             const btn = document.getElementById('btnFreeze');
             const txt = document.getElementById('freezeBtnText');
             if (state.isFrozen) {
-                btn.className = 'px-4 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-semibold text-xs sm:text-sm flex items-center gap-2 shadow-lg transition';
+                btn.className = 'px-3.5 py-2 rounded-xl bg-amber-500 text-slate-950 font-semibold text-xs flex items-center gap-1.5 shadow-lg transition';
                 txt.textContent = 'Продолжить сканирование';
-                setStatus('СКАН ЗАФИКСИРОВАН', 'amber');
             } else {
-                btn.className = 'px-4 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-white border border-cyan-400/50 font-medium text-xs sm:text-sm flex items-center gap-2 shadow-lg transition';
-                txt.textContent = 'Зафиксировать 3D скан';
-                setStatus(state.isCameraActive ? 'СКАНИРОВАНИЕ АКТИВНО' : 'ГОТОВ', 'cyan');
+                btn.className = 'px-3.5 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-white border border-cyan-400/50 font-medium text-xs flex items-center gap-1.5 shadow-lg transition';
+                txt.textContent = 'Зафиксировать скан';
             }
         }
 
         document.getElementById('btnFreeze').addEventListener('click', () => {
             state.isFrozen = !state.isFrozen;
             updateFreezeUI();
-            if (state.isFrozen) {
-                showToast('Скан зафиксирован! Теперь его можно осмотреть со всех сторон и скачать.');
-            }
         });
 
-        // Mode Switching
-        const modeFaceBtn = document.getElementById('modeFaceBtn');
+        // Переключение карточек режимов
+        const modeLidarBtn = document.getElementById('modeLidarBtn');
         const modeDepthBtn = document.getElementById('modeDepthBtn');
-        const resGroup = document.getElementById('resolutionControlGroup');
+        const modeFaceBtn = document.getElementById('modeFaceBtn');
 
-        modeFaceBtn.addEventListener('click', () => {
-            state.mode = 'face';
-            modeFaceBtn.className = 'mode-btn text-left p-3 rounded-xl border border-cyan-400 bg-cyan-500/10 transition flex items-start gap-3';
-            modeDepthBtn.className = 'mode-btn text-left p-3 rounded-xl border border-slate-700/80 bg-slate-900/50 hover:border-slate-600 transition flex items-start gap-3';
-            hudModeLabel.textContent = 'РЕЖИМ: 3D ЛИЦО (AI MESH)';
-            resGroup.classList.add('opacity-60');
-            rebuildThreeObjects(FACE_VERTS, mpTrianglesComputed ? mpTriangles : faceTriangles);
+        function highlightModeCard(activeBtn) {
+            [modeLidarBtn, modeDepthBtn, modeFaceBtn].forEach(b => {
+                b.className = 'mode-btn text-left p-2.5 rounded-xl border border-slate-700/80 bg-slate-900/50 transition flex items-start gap-2.5';
+            });
+            activeBtn.className = 'mode-btn text-left p-2.5 rounded-xl border border-cyan-400 bg-cyan-500/10 transition flex items-start gap-2.5';
+        }
+
+        modeLidarBtn.addEventListener('click', () => {
+            highlightModeCard(modeLidarBtn);
+            startRealLiDARSession();
         });
 
         modeDepthBtn.addEventListener('click', () => {
             state.mode = 'depth';
-            modeDepthBtn.className = 'mode-btn text-left p-3 rounded-xl border border-cyan-400 bg-cyan-500/10 transition flex items-start gap-3';
-            modeFaceBtn.className = 'mode-btn text-left p-3 rounded-xl border border-slate-700/80 bg-slate-900/50 hover:border-slate-600 transition flex items-start gap-3';
+            state.isFrozen = false;
+            updateFreezeUI();
+            highlightModeCard(modeDepthBtn);
             hudModeLabel.textContent = 'РЕЖИМ: КАРТА ГЛУБИНЫ (3D РЕЛЬЕФ)';
-            resGroup.classList.remove('opacity-60');
             initDepthGridGeometry();
         });
 
-        // Style Buttons
+        modeFaceBtn.addEventListener('click', () => {
+            state.mode = 'face';
+            state.isFrozen = false;
+            updateFreezeUI();
+            highlightModeCard(modeFaceBtn);
+            hudModeLabel.textContent = 'РЕЖИМ: 3D ЛИЦО (AI MESH)';
+            rebuildThreeObjects(FACE_VERTS, faceTriangles);
+            if (state.facingMode !== 'user') {
+                state.facingMode = 'user';
+                if (state.isCameraActive) startCamera();
+            }
+        });
+
+        // Стили отображения
         document.querySelectorAll('.style-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.style-btn').forEach(b => {
-                    b.className = 'style-btn px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 hover:border-slate-500 flex items-center gap-2 transition';
+                    b.className = 'style-btn px-2.5 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 flex items-center gap-1.5 transition';
                 });
-                btn.className = 'style-btn px-3 py-2 rounded-xl border border-cyan-400 bg-cyan-500/15 text-xs font-medium text-white flex items-center gap-2 transition';
+                btn.className = 'style-btn px-2.5 py-2 rounded-xl border border-cyan-400 bg-cyan-500/15 text-xs font-medium text-white flex items-center gap-1.5 transition';
                 state.vizStyle = btn.dataset.style;
                 updateVisualizationStyle();
             });
         });
 
-        // Color Theme Buttons
+        // Палитры
         document.querySelectorAll('.color-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.color-btn').forEach(b => {
-                    b.className = 'color-btn px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700';
+                    b.className = 'color-btn px-2 py-1 rounded-lg text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700';
                 });
-                btn.className = 'color-btn px-2.5 py-1 rounded-lg text-[11px] font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-400/50';
+                btn.className = 'color-btn px-2 py-1 rounded-lg text-[10px] font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-400/50';
                 state.colorTheme = btn.dataset.color;
+                toggleNightVision(btn.dataset.color === 'night');
             });
         });
 
-        // Sliders
+        // Слайдеры
         document.getElementById('sliderDepthScale').addEventListener('input', (e) => {
             state.depthScale = parseFloat(e.target.value);
             document.getElementById('valDepthScale').textContent = state.depthScale.toFixed(1) + 'x';
         });
 
-        document.getElementById('sliderPointSize').addEventListener('input', (e) => {
-            state.pointSize = parseFloat(e.target.value);
-            document.getElementById('valPointSize').textContent = state.pointSize.toFixed(1) + ' px';
-            updateVisualizationStyle();
+        document.getElementById('sliderNightGain').addEventListener('input', (e) => {
+            state.nightGain = parseFloat(e.target.value);
+            document.getElementById('valNightGain').textContent = state.nightGain.toFixed(1) + 'x';
+            if (!state.nightVision) toggleNightVision(true);
         });
 
         document.getElementById('sliderResolution').addEventListener('input', (e) => {
@@ -1220,9 +1442,7 @@
             state.gridResX = rx;
             state.gridResY = ry;
             document.getElementById('valResolution').textContent = `${rx}×${ry}`;
-            if (state.mode === 'depth') {
-                initDepthGridGeometry();
-            }
+            if (state.mode === 'depth') initDepthGridGeometry();
         });
 
         document.getElementById('sliderThreshold').addEventListener('input', (e) => {
@@ -1235,30 +1455,25 @@
             state.invertZ = e.target.checked;
         });
 
-        // Viewport Actions
         document.getElementById('btnResetView').addEventListener('click', () => {
             controls.reset();
             scanGroup.rotation.set(0, 0, 0);
-            camera.position.set(0, 0, 4.2);
+            camera.position.set(0, 0, 4.0);
         });
 
         document.getElementById('btnAutoRotate').addEventListener('click', (e) => {
             state.autoRotate = !state.autoRotate;
             e.currentTarget.classList.toggle('text-cyan-400', state.autoRotate);
-            e.currentTarget.classList.toggle('border-cyan-400', state.autoRotate);
         });
 
-        // Export Buttons
         document.getElementById('btnExportOBJ').addEventListener('click', exportToOBJ);
         document.getElementById('btnExportPLY').addEventListener('click', exportToPLY);
 
-        // Info Modal
         const infoModal = document.getElementById('infoModal');
         document.getElementById('btnInfo').addEventListener('click', () => infoModal.classList.remove('hidden'));
         document.getElementById('btnCloseModal').addEventListener('click', () => infoModal.classList.add('hidden'));
         document.getElementById('btnCloseModalBottom').addEventListener('click', () => infoModal.classList.add('hidden'));
 
-        // Responsive Canvas Resize
         window.addEventListener('resize', () => {
             const w = container.clientWidth;
             const h = container.clientHeight;
@@ -1266,11 +1481,6 @@
             camera.updateProjectionMatrix();
             renderer.setSize(w, h);
         });
-
-        // Start 3D Engine on Load
-        window.onload = () => {
-            requestAnimationFrame(animateLoop);
-        };
     </script>
 </body>
 </html>
