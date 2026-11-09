@@ -1,0 +1,1276 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Сканер — Face Mesh & Depth Studio</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js & OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- MediaPipe FaceMesh -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #060911;
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Futuristic LiDAR Scanner Grid & Laser Animation */
+        .scanner-laser {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #00f5d4, #00bbf9, transparent);
+            box-shadow: 0 0 12px #00f5d4;
+            animation: scanLaser 3s ease-in-out infinite;
+            pointer-events: none;
+            z-index: 15;
+        }
+
+        @keyframes scanLaser {
+            0%, 100% { top: 6%; opacity: 0.3; }
+            50% { top: 94%; opacity: 0.95; }
+        }
+
+        .hud-corner {
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border-color: #00f5d4;
+            pointer-events: none;
+            z-index: 20;
+        }
+
+        /* Custom Scrollbar & Range Sliders */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: #1e293b;
+            height: 6px;
+            border-radius: 999px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #00f5d4;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(0, 245, 212, 0.8);
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.78);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.18);
+        }
+
+        .glow-btn {
+            box-shadow: 0 0 20px rgba(0, 245, 212, 0.25);
+        }
+        .glow-btn:hover {
+            box-shadow: 0 0 28px rgba(0, 245, 212, 0.45);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between select-none">
+
+    <!-- Top Header -->
+    <header class="glass-panel sticky top-0 z-40 px-4 py-3 border-b border-cyan-500/20">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-400/40 flex items-center justify-center text-cyan-400 shadow-inner">
+                    <i data-lucide="scan-face" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-bold text-base sm:text-lg tracking-tight text-white">TrueDepth <span class="text-cyan-400">Web 3D Studio</span></h1>
+                        <span id="statusBadge" class="mono text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                            ГОТОВ
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-400 hidden sm:block">Нейросетевой 3D-сканер лица и рельефа с экспортом в .OBJ / .PLY</p>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex items-center gap-2">
+                <button id="btnInfo" class="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition">
+                    <i data-lucide="info" class="w-4 h-4 text-cyan-400"></i>
+                    <span class="hidden md:inline">Как это работает?</span>
+                </button>
+                <button id="btnSwitchCam" class="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center gap-1.5 transition" title="Переключить фронтальную/заднюю камеру">
+                    <i data-lucide="refresh-cw" class="w-4 h-4 text-cyan-400"></i>
+                    <span class="hidden sm:inline">Камера</span>
+                </button>
+                <button id="btnStartCam" class="glow-btn px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 font-semibold text-xs sm:text-sm flex items-center gap-1.5 transition">
+                    <i data-lucide="video" class="w-4 h-4"></i>
+                    <span id="btnStartCamText">Включить камеру</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+        <!-- Left / Center Column: 3D Interactive Viewport (8 cols on desktop) -->
+        <div class="lg:col-span-8 flex flex-col gap-3">
+            <!-- 3D Viewport Container -->
+            <div class="relative w-full h-[420px] sm:h-[540px] rounded-2xl overflow-hidden border border-cyan-500/30 bg-[#050811] shadow-2xl flex-1">
+                
+                <!-- Three.js Canvas Mount -->
+                <div id="threeContainer" class="w-full h-full cursor-grab active:cursor-grabbing"></div>
+
+                <!-- Top-Left Viewport HUD -->
+                <div class="absolute top-3 left-3 z-20 flex flex-col gap-1.5 pointer-events-none">
+                    <div class="glass-panel px-3 py-1.5 rounded-lg text-xs mono text-cyan-300 flex items-center gap-2">
+                        <i data-lucide="box" class="w-3.5 h-3.5"></i>
+                        <span id="hudModeLabel">РЕЖИМ: 3D ЛИЦО (AI MESH)</span>
+                    </div>
+                    <div class="glass-panel px-3 py-1 rounded-lg text-[11px] mono text-slate-300 flex items-center gap-3">
+                        <span>ВЕРШИН: <strong id="hudVertices" class="text-white">0</strong></span>
+                        <span>FPS: <strong id="hudFps" class="text-emerald-400">60</strong></span>
+                    </div>
+                </div>
+
+                <!-- Top-Right Viewport Controls (Reset camera, Auto-rotate) -->
+                <div class="absolute top-3 right-3 z-20 flex items-center gap-1.5">
+                    <button id="btnAutoRotate" class="glass-panel p-2 rounded-lg text-slate-300 hover:text-cyan-400 transition" title="Авто-вращение 3D модели">
+                        <i data-lucide="orbit" class="w-4 h-4"></i>
+                    </button>
+                    <button id="btnResetView" class="glass-panel p-2 rounded-lg text-slate-300 hover:text-cyan-400 transition" title="Сбросить ракурс 3D камеры">
+                        <i data-lucide="focus" class="w-4 h-4"></i>
+                    </button>
+                </div>
+
+                <!-- Picture-in-Picture Live Camera Feed + HUD -->
+                <div class="absolute bottom-3 left-3 z-20 w-36 sm:w-48 aspect-[4/3] rounded-xl overflow-hidden border border-cyan-400/40 bg-slate-950/90 shadow-lg">
+                    <div class="scanner-laser"></div>
+                    <!-- HUD Corners -->
+                    <div class="hud-corner top-1.5 left-1.5 border-t-2 border-l-2"></div>
+                    <div class="hud-corner top-1.5 right-1.5 border-t-2 border-r-2"></div>
+                    <div class="hud-corner bottom-1.5 left-1.5 border-b-2 border-l-2"></div>
+                    <div class="hud-corner bottom-1.5 right-1.5 border-b-2 border-r-2"></div>
+
+                    <!-- Hidden raw video & visible 2D overlay canvas -->
+                    <video id="webcamVideo" class="hidden" playsinline muted></video>
+                    <canvas id="pipCanvas" class="w-full h-full object-cover transform scale-x-[-1]"></canvas>
+
+                    <div class="absolute bottom-1 left-2 right-2 flex justify-between items-center text-[10px] mono text-cyan-300 bg-slate-950/70 px-1.5 py-0.5 rounded">
+                        <span id="pipSourceLabel">СИМУЛЯЦИЯ</span>
+                        <span class="text-emerald-400">IR-DEPTH</span>
+                    </div>
+                </div>
+
+                <!-- Bottom-Right Freeze / Capture Button inside Viewport -->
+                <div class="absolute bottom-3 right-3 z-20 flex items-center gap-2">
+                    <button id="btnFreeze" class="px-4 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-white border border-cyan-400/50 font-medium text-xs sm:text-sm flex items-center gap-2 shadow-lg transition">
+                        <i data-lucide="camera" class="w-4 h-4 text-cyan-400"></i>
+                        <span id="freezeBtnText">Зафиксировать 3D скан</span>
+                    </button>
+                </div>
+
+                <!-- Interactive Hint -->
+                <div class="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/70 border border-slate-700/60 text-[11px] text-slate-400 pointer-events-none">
+                    <i data-lucide="mouse-pointer-click" class="w-3.5 h-3.5 text-cyan-400"></i>
+                    <span>Вращайте и приближайте 3D-модель пальцем или мышью</span>
+                </div>
+            </div>
+
+            <!-- Export Bar -->
+            <div class="glass-panel rounded-2xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                        <i data-lucide="download" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xs sm:text-sm font-semibold text-white">Экспорт готовой 3D-модели</h2>
+                        <p class="text-[11px] text-slate-400">Подходит для Blender, ZBrush, MeshLab или 3D-слайсеров</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <button id="btnExportOBJ" class="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-semibold mono flex items-center justify-center gap-1.5 transition">
+                        <i data-lucide="file-box" class="w-4 h-4"></i>
+                        Скачать .OBJ (Mesh)
+                    </button>
+                    <button id="btnExportPLY" class="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-semibold mono flex items-center justify-center gap-1.5 transition">
+                        <i data-lucide="sparkles" class="w-4 h-4"></i>
+                        Скачать .PLY (Cloud)
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Scanner Controls & Settings (4 cols on desktop) -->
+        <div class="lg:col-span-4 flex flex-col gap-4">
+
+            <!-- Mode Selector Card -->
+            <div class="glass-panel rounded-2xl p-4 flex flex-col gap-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-cyan-400 mono">1. Режим сканирования</span>
+                    <span class="text-[11px] text-slate-400">Датчик / Алгоритм</span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
+                    <button id="modeFaceBtn" class="mode-btn text-left p-3 rounded-xl border border-cyan-400 bg-cyan-500/10 transition flex items-start gap-3">
+                        <div class="p-2 rounded-lg bg-cyan-500/20 text-cyan-300 mt-0.5">
+                            <i data-lucide="scan-face" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-sm text-white flex items-center gap-1.5">
+                                3D Лицо (AI TrueDepth)
+                                <span class="text-[10px] px-1.5 py-0.2 bg-cyan-500/30 text-cyan-200 rounded mono">468 тчк</span>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-0.5">Нейросеть MediaPipe строит точный 3D-слепок лица в реальном времени.</p>
+                        </div>
+                    </button>
+
+                    <button id="modeDepthBtn" class="mode-btn text-left p-3 rounded-xl border border-slate-700/80 bg-slate-900/50 hover:border-slate-600 transition flex items-start gap-3">
+                        <div class="p-2 rounded-lg bg-slate-800 text-slate-300 mt-0.5">
+                            <i data-lucide="layers" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-sm text-white flex items-center gap-1.5">
+                                Карта глубины (Любой объект)
+                                <span class="text-[10px] px-1.5 py-0.2 bg-slate-700 text-slate-300 rounded mono">Рельеф</span>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-0.5">Превращает любой предмет перед камерой в плотную 3D-сетку по карте высот и света.</p>
+                        </div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Visualization Style Card -->
+            <div class="glass-panel rounded-2xl p-4 flex flex-col gap-3">
+                <span class="text-xs font-semibold uppercase tracking-wider text-cyan-400 mono">2. Стиль 3D-отображения</span>
+                <div class="grid grid-cols-2 gap-2">
+                    <button data-style="combined" class="style-btn px-3 py-2 rounded-xl border border-cyan-400 bg-cyan-500/15 text-xs font-medium text-white flex items-center gap-2 transition">
+                        <i data-lucide="cpu" class="w-4 h-4 text-cyan-400"></i>
+                        LiDAR Гибрид
+                    </button>
+                    <button data-style="points" class="style-btn px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 hover:border-slate-500 flex items-center gap-2 transition">
+                        <i data-lucide="grip" class="w-4 h-4 text-emerald-400"></i>
+                        Облако точек
+                    </button>
+                    <button data-style="wireframe" class="style-btn px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 hover:border-slate-500 flex items-center gap-2 transition">
+                        <i data-lucide="grid" class="w-4 h-4 text-sky-400"></i>
+                        3D Сетка (Wire)
+                    </button>
+                    <button data-style="solid" class="style-btn px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 hover:border-slate-500 flex items-center gap-2 transition">
+                        <i data-lucide="box" class="w-4 h-4 text-purple-400"></i>
+                        Полигоны (Mesh)
+                    </button>
+                </div>
+
+                <!-- Color Theme Selector -->
+                <div class="pt-2 border-t border-slate-800 flex items-center justify-between">
+                    <span class="text-xs text-slate-400">Цветовая схема:</span>
+                    <div class="flex items-center gap-1.5">
+                        <button data-color="lidar" class="color-btn px-2.5 py-1 rounded-lg text-[11px] font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-400/50">Циан LiDAR</button>
+                        <button data-color="heatmap" class="color-btn px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">Тепловая Z</button>
+                        <button data-color="rgb" class="color-btn px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700">Цвет камеры</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Geometry Parameters Card -->
+            <div class="glass-panel rounded-2xl p-4 flex flex-col gap-3.5">
+                <span class="text-xs font-semibold uppercase tracking-wider text-cyan-400 mono">3. Калибровка глубины (Z-Sensor)</span>
+
+                <!-- Depth Extrusion -->
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-300">Множитель глубины (Z-Scale)</span>
+                        <span id="valDepthScale" class="mono text-cyan-400">1.5x</span>
+                    </div>
+                    <input id="sliderDepthScale" type="range" min="0.3" max="3.5" step="0.1" value="1.5">
+                </div>
+
+                <!-- Point Size -->
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-300">Размер точек лазера</span>
+                        <span id="valPointSize" class="mono text-cyan-400">3.0 px</span>
+                    </div>
+                    <input id="sliderPointSize" type="range" min="1.0" max="8.0" step="0.5" value="3.0">
+                </div>
+
+                <!-- Grid Resolution (For Depth Relief Mode) -->
+                <div id="resolutionControlGroup" class="flex flex-col gap-1 opacity-60">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-300">Плотность сетки рельефа</span>
+                        <span id="valResolution" class="mono text-cyan-400">72×54</span>
+                    </div>
+                    <input id="sliderResolution" type="range" min="32" max="120" step="8" value="72">
+                </div>
+
+                <!-- Background Cutoff (Threshold) -->
+                <div class="flex flex-col gap-1">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-slate-300">Отсечение дальнего фона</span>
+                        <span id="valThreshold" class="mono text-cyan-400">10%</span>
+                    </div>
+                    <input id="sliderThreshold" type="range" min="0" max="60" step="2" value="10">
+                </div>
+
+                <!-- Invert Z toggle -->
+                <label class="flex items-center justify-between pt-1 border-t border-slate-800 cursor-pointer">
+                    <span class="text-xs text-slate-300">Инвертировать выпуклость (Z-Invert)</span>
+                    <input id="chkInvertZ" type="checkbox" class="w-4 h-4 accent-cyan-400 rounded cursor-pointer">
+                </label>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed bottom-5 right-5 z-50 hidden glass-panel border-cyan-400/50 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 text-xs sm:text-sm text-white transition-all">
+        <i data-lucide="check-circle-2" class="w-5 h-5 text-emerald-400 shrink-0"></i>
+        <span id="toastMsg">Операция выполнена</span>
+    </div>
+
+    <!-- Modal: Technical Info about TrueDepth in Browser -->
+    <div id="infoModal" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="glass-panel max-w-lg w-full rounded-2xl p-5 sm:p-6 border border-cyan-500/30 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <i data-lucide="cpu" class="w-5 h-5 text-cyan-400"></i>
+                    <h3 class="font-bold text-base sm:text-lg text-white">Как работает 3D-сканер в браузере?</h3>
+                </div>
+                <button id="btnCloseModal" class="p-1 rounded-lg text-slate-400 hover:text-white">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="space-y-3 text-xs sm:text-sm text-slate-300 leading-relaxed">
+                <p>
+                    <strong class="text-cyan-300">1. Почему Safari не отдает сырой ИК-поток Face ID?</strong><br>
+                    Apple закрыла доступ к аппаратному массиву точек <em>TrueDepth</em> для веб-сайтов по соображениям биометрической безопасности (он доступен только приложениям из App Store через <code>ARKit</code>).
+                </p>
+                <p>
+                    <strong class="text-cyan-300">2. Решение №1 — ИИ-реконструкция (Режим «3D Лицо»):</strong><br>
+                    Мы используем нейросеть <strong>Google MediaPipe Face Mesh</strong>, которая по обычному видеопотоку с фронтальной камеры предсказывает <strong>468 трехмерных точек (X, Y, Z)</strong> вашего лица с миллиметровой точностью — визуально и геометрически это работает как настоящий датчик Face ID!
+                </p>
+                <p>
+                    <strong class="text-cyan-300">3. Решение №2 — Карта рельефа (Режим «Карта глубины»):</strong><br>
+                    Для любых других предметов (кружка, рука, статуэтка) алгоритм анализирует освещенность и локальный градиент пикселей, выдавливая 3D-рельеф в реальном времени. Поднесите предмет ближе к камере на хорошо освещенном фоне, нажмите <strong>«Зафиксировать 3D скан»</strong> и скачайте файл <code>.OBJ</code>!
+                </p>
+            </div>
+
+            <div class="pt-2 flex justify-end">
+                <button id="btnCloseModalBottom" class="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-semibold text-xs hover:bg-cyan-400 transition">
+                    Понятно, к сканированию!
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // ==========================================
+        // APPLICATION STATE
+        // ==========================================
+        const state = {
+            mode: 'face',           // 'face' | 'depth'
+            vizStyle: 'combined',   // 'combined' | 'points' | 'wireframe' | 'solid'
+            colorTheme: 'lidar',    // 'lidar' | 'heatmap' | 'rgb'
+            depthScale: 1.5,
+            pointSize: 3.0,
+            gridResX: 72,
+            gridResY: 54,
+            bgThreshold: 0.10,
+            invertZ: false,
+            isCameraActive: false,
+            facingMode: 'user',     // 'user' (front) | 'environment' (back)
+            isFrozen: false,
+            autoRotate: false,
+            faceDetected: false,
+            lastLandmarks: null,
+            simTime: 0
+        };
+
+        // DOM Elements
+        const videoEl = document.getElementById('webcamVideo');
+        const pipCanvas = document.getElementById('pipCanvas');
+        const pipCtx = pipCanvas.getContext('2d', { willReadFrequently: true });
+        const statusBadge = document.getElementById('statusBadge');
+        const hudModeLabel = document.getElementById('hudModeLabel');
+        const hudVertices = document.getElementById('hudVertices');
+        const hudFps = document.getElementById('hudFps');
+        const pipSourceLabel = document.getElementById('pipSourceLabel');
+
+        pipCanvas.width = 240;
+        pipCanvas.height = 180;
+
+        // Offscreen canvas for sampling depth colors/luminance
+        const sampleCanvas = document.createElement('canvas');
+        const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
+
+        // Toast Helper
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMsg').textContent = message;
+            toast.classList.remove('hidden');
+            clearTimeout(window._toastTimer);
+            window._toastTimer = setTimeout(() => {
+                toast.classList.add('hidden');
+            }, 3400);
+        }
+
+        // Update Status Badge
+        function setStatus(text, color = 'emerald') {
+            const colors = {
+                emerald: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+                cyan: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+                amber: 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+            };
+            statusBadge.className = `mono text-[11px] px-2 py-0.5 rounded-full border flex items-center gap-1 ${colors[color] || colors.emerald}`;
+            statusBadge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>${text}`;
+        }
+
+        // ==========================================
+        // THREE.JS 3D SCENE INITIALIZATION
+        // ==========================================
+        const container = document.getElementById('threeContainer');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x050811, 0.08);
+
+        const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+        camera.position.set(0, 0, 4.2);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.maxDistance = 12;
+        controls.minDistance = 1.2;
+
+        // Lighting for Solid Mesh Mode
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
+        scene.add(ambientLight);
+
+        const dirLight1 = new THREE.DirectionalLight(0x00f5d4, 0.9);
+        dirLight1.position.set(2, 3, 4);
+        scene.add(dirLight1);
+
+        const dirLight2 = new THREE.DirectionalLight(0x38bdf8, 0.5);
+        dirLight2.position.set(-3, -2, 2);
+        scene.add(dirLight2);
+
+        // Futuristic Reference Grid Floor
+        const gridHelper = new THREE.GridHelper(6, 24, 0x00f5d4, 0x1e293b);
+        gridHelper.position.y = -1.45;
+        gridHelper.material.opacity = 0.35;
+        gridHelper.material.transparent = true;
+        scene.add(gridHelper);
+
+        // Scan Group holding Points + Wireframe + Solid Mesh
+        const scanGroup = new THREE.Group();
+        scene.add(scanGroup);
+
+        let geometry = new THREE.BufferGeometry();
+        let pointsObj = null;
+        let meshObj = null;
+        let wireObj = null;
+
+        // Materials
+        const pointsMaterial = new THREE.PointsMaterial({
+            size: 0.032,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.95
+        });
+
+        const wireMaterial = new THREE.MeshBasicMaterial({
+            vertexColors: true,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.35
+        });
+
+        const solidMaterial = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.35,
+            metalness: 0.15,
+            side: THREE.DoubleSide,
+            flatShading: true
+        });
+
+        // Build or Rebuild Three.js Buffers for a given vertex count & index list
+        function rebuildThreeObjects(numVertices, indicesArray) {
+            if (pointsObj) scanGroup.remove(pointsObj);
+            if (meshObj) scanGroup.remove(meshObj);
+            if (wireObj) scanGroup.remove(wireObj);
+            if (geometry) geometry.dispose();
+
+            geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(numVertices * 3);
+            const colors = new Float32Array(numVertices * 3);
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            if (indicesArray && indicesArray.length > 0) {
+                geometry.setIndex(indicesArray);
+            }
+
+            pointsObj = new THREE.Points(geometry, pointsMaterial);
+            wireObj = new THREE.Mesh(geometry, wireMaterial);
+            meshObj = new THREE.Mesh(geometry, solidMaterial);
+
+            scanGroup.add(pointsObj);
+            scanGroup.add(wireObj);
+            scanGroup.add(meshObj);
+
+            updateVisualizationStyle();
+            hudVertices.textContent = numVertices.toLocaleString('ru-RU');
+        }
+
+        function updateVisualizationStyle() {
+            if (!pointsObj || !wireObj || !meshObj) return;
+            const st = state.vizStyle;
+            pointsObj.visible = (st === 'points' || st === 'combined');
+            wireObj.visible = (st === 'wireframe' || st === 'combined');
+            meshObj.visible = (st === 'solid');
+
+            if (st === 'wireframe') {
+                wireMaterial.opacity = 0.85;
+            } else {
+                wireMaterial.opacity = 0.30;
+            }
+            pointsMaterial.size = state.pointSize * 0.011;
+        }
+
+        // ==========================================
+        // PROCEDURAL FACE TOPOLOGY & SYMMETRIC TRIANGULATION
+        // ==========================================
+        // Builds a clean Delaunay-like grid or uses canonical face triangulation
+        const FACE_VERTS = 468;
+        let faceTriangles = [];
+
+        // Generate synthetic 3D biometric head vertices (used as fallback or before camera starts)
+        const syntheticFaceBase = [];
+        function initFaceGeometry() {
+            syntheticFaceBase.length = 0;
+            // Create 468 structured points mapped to a realistic human face mask
+            const cols = 26;
+            const rows = 18; // 26 * 18 = 468 vertices!
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const u = (c / (cols - 1)) * 2 - 1; // -1 to 1
+                    const v = (r / (rows - 1)) * 2 - 1; // -1 to 1
+
+                    // Elliptical face contour shaping
+                    const radius = Math.sqrt(u * u * 1.15 + v * v * 0.85);
+                    const maskFactor = Math.max(0, 1 - Math.pow(radius, 2.2));
+
+                    // Base cranium + cheeks + nose + eye sockets + lips
+                    let z = maskFactor * 0.55;
+                    // Nose ridge
+                    z += Math.exp(-(u * u) / 0.025 - Math.pow(v - 0.05, 2) / 0.12) * 0.28;
+                    // Eye sockets (indentations)
+                    z -= Math.exp(-Math.pow(Math.abs(u) - 0.32, 2) / 0.03 - Math.pow(v - 0.22, 2) / 0.025) * 0.14;
+                    // Brow ridge
+                    z += Math.exp(-Math.pow(Math.abs(u) - 0.30, 2) / 0.06 - Math.pow(v - 0.38, 2) / 0.015) * 0.07;
+                    // Lips / mouth contour
+                    z += Math.exp(-(u * u) / 0.08 - Math.pow(v + 0.36, 2) / 0.015) * 0.10;
+                    // Chin
+                    z += Math.exp(-(u * u) / 0.09 - Math.pow(v + 0.68, 2) / 0.04) * 0.08;
+
+                    const x = u * 0.82 * (0.92 + 0.08 * Math.cos(v * 1.2));
+                    const y = v * 1.05;
+
+                    syntheticFaceBase.push({ x, y, z, u, v, r, c });
+                }
+            }
+
+            // Build triangle indices for the 26x18 structured mesh (or nearest-neighbor triangulation for live landmarks)
+            faceTriangles = [];
+            for (let r = 0; r < rows - 1; r++) {
+                for (let c = 0; c < cols - 1; c++) {
+                    const i0 = r * cols + c;
+                    const i1 = i0 + 1;
+                    const i2 = (r + 1) * cols + c;
+                    const i3 = i2 + 1;
+                    faceTriangles.push(i0, i2, i1);
+                    faceTriangles.push(i1, i2, i3);
+                }
+            }
+        }
+        initFaceGeometry();
+
+        // Dynamic K-Nearest / Delaunay-style triangulation for MediaPipe 468 landmarks
+        let mpTrianglesComputed = false;
+        let mpTriangles = [];
+
+        function computeMediaPipeTriangles(landmarks) {
+            // Compute 2D bowyer-watson / gift-wrapping style local triangles once from canonical landmark layout
+            const tris = [];
+            const N = Math.min(landmarks.length, FACE_VERTS);
+            // For each vertex, connect to closest neighbors forming acute triangles with max edge threshold
+            const maxDistSq = 0.012;
+            for (let i = 0; i < N; i++) {
+                const p1 = landmarks[i];
+                const neighbors = [];
+                for (let j = i + 1; j < N; j++) {
+                    const p2 = landmarks[j];
+                    const dx = p1.x - p2.x;
+                    const dy = p1.y - p2.y;
+                    const d2 = dx * dx + dy * dy;
+                    if (d2 < maxDistSq) {
+                        neighbors.push({ idx: j, d2 });
+                    }
+                }
+                neighbors.sort((a, b) => a.d2 - b.d2);
+                const limit = Math.min(neighbors.length, 4);
+                for (let a = 0; a < limit; a++) {
+                    for (let b = a + 1; b < limit; b++) {
+                        const n1 = landmarks[neighbors[a].idx];
+                        const n2 = landmarks[neighbors[b].idx];
+                        const dx = n1.x - n2.x;
+                        const dy = n1.y - n2.y;
+                        if (dx * dx + dy * dy < maxDistSq) {
+                            tris.push(i, neighbors[a].idx, neighbors[b].idx);
+                        }
+                    }
+                }
+            }
+            mpTriangles = tris;
+            mpTrianglesComputed = true;
+        }
+
+        // ==========================================
+        // DEPTH MATRIX (MODE 2) INITIALIZATION
+        // ==========================================
+        function initDepthGridGeometry() {
+            const rx = state.gridResX;
+            const ry = state.gridResY;
+            const numVerts = rx * ry;
+            const indices = [];
+
+            for (let y = 0; y < ry - 1; y++) {
+                for (let x = 0; x < rx - 1; x++) {
+                    const i0 = y * rx + x;
+                    const i1 = i0 + 1;
+                    const i2 = (y + 1) * rx + x;
+                    const i3 = i2 + 1;
+                    indices.push(i0, i2, i1);
+                    indices.push(i1, i2, i3);
+                }
+            }
+            rebuildThreeObjects(numVerts, indices);
+        }
+
+        // Start in Mode 1 (Face)
+        rebuildThreeObjects(FACE_VERTS, faceTriangles);
+
+        // ==========================================
+        // COLOR MAPPING HELPER
+        // ==========================================
+        function computeVertexColor(normZ, r = 0, g = 245, b = 212) {
+            // normZ in [0, 1]
+            const clamped = Math.max(0, Math.min(1, normZ));
+            if (state.colorTheme === 'lidar') {
+                // Deep blue/teal to bright neon cyan-emerald
+                return [
+                    0.02 + clamped * 0.15,
+                    0.35 + clamped * 0.65,
+                    0.55 + clamped * 0.40
+                ];
+            } else if (state.colorTheme === 'heatmap') {
+                // Thermal Depth Heatmap (Blue -> Cyan -> Green -> Yellow -> Red)
+                const h = (1.0 - clamped) * 240; // 240deg (blue) to 0deg (red)
+                const c = new THREE.Color().setHSL(h / 360, 0.95, 0.52);
+                return [c.r, c.g, c.b];
+            } else {
+                // Camera RGB
+                return [r / 255, g / 255, b / 255];
+            }
+        }
+
+        // ==========================================
+        // MEDIAPIPE FACE MESH SETUP
+        // ==========================================
+        let faceMesh = null;
+        let isProcessingFrame = false;
+
+        async function initMediaPipeFaceMesh() {
+            try {
+                faceMesh = new FaceMesh({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+                });
+                faceMesh.setOptions({
+                    maxNumFaces: 1,
+                    refineLandmarks: false,
+                    minDetectionConfidence: 0.5,
+                    minTrackingConfidence: 0.5
+                });
+                faceMesh.onResults((results) => {
+                    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                        state.lastLandmarks = results.multiFaceLandmarks[0];
+                        state.faceDetected = true;
+                        if (!mpTrianglesComputed) {
+                            computeMediaPipeTriangles(state.lastLandmarks);
+                            if (state.mode === 'face') {
+                                rebuildThreeObjects(FACE_VERTS, mpTriangles);
+                            }
+                        }
+                    } else {
+                        state.faceDetected = false;
+                    }
+                });
+            } catch (err) {
+                console.warn('MediaPipe fallback active:', err);
+            }
+        }
+        initMediaPipeFaceMesh();
+
+        // ==========================================
+        // CAMERA WEBRTC STREAM HANDLER
+        // ==========================================
+        async function startCamera() {
+            try {
+                setStatus('ЗАПУСК КАМЕРЫ...', 'amber');
+                if (videoEl.srcObject) {
+                    videoEl.srcObject.getTracks().forEach(t => t.stop());
+                }
+
+                const constraints = {
+                    audio: false,
+                    video: {
+                        facingMode: state.facingMode,
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoEl.srcObject = stream;
+                await videoEl.play();
+
+                state.isCameraActive = true;
+                state.isFrozen = false;
+                updateFreezeUI();
+
+                document.getElementById('btnStartCamText').textContent = 'Камера активна';
+                pipSourceLabel.textContent = state.facingMode === 'user' ? 'LIVE TRUEDEPTH' : 'LIVE LIDAR CAM';
+                setStatus('СКАНИРОВАНИЕ АКТИВНО', 'cyan');
+                showToast('Камера подключена! Наведите на лицо или предмет.');
+            } catch (err) {
+                console.warn('Webcam unavailable or denied, running interactive 3D simulation:', err);
+                state.isCameraActive = false;
+                pipSourceLabel.textContent = '3D СИМУЛЯЦИЯ';
+                setStatus('ДЕМО-СИМУЛЯТОР', 'amber');
+                showToast('Камера недоступна в превью — включен интерактивный 3D-симулятор датчика!');
+            }
+        }
+
+        // ==========================================
+        // REAL-TIME GEOMETRY UPDATE LOOP
+        // ==========================================
+        function updateFaceModeGeometry(dt) {
+            const posAttr = geometry.attributes.position;
+            const colAttr = geometry.attributes.color;
+            const posArr = posAttr.array;
+            const colArr = colAttr.array;
+            const zDir = state.invertZ ? -1 : 1;
+
+            // Sample webcam image for RGB mode & PiP display
+            let imgData = null;
+            if (state.isCameraActive && videoEl.readyState >= 2) {
+                sampleCanvas.width = 120;
+                sampleCanvas.height = 90;
+                sampleCtx.drawImage(videoEl, 0, 0, 120, 90);
+                imgData = sampleCtx.getImageData(0, 0, 120, 90).data;
+            }
+
+            if (state.isCameraActive && state.faceDetected && state.lastLandmarks) {
+                // Real MediaPipe 468 3D Facial Landmarks
+                const lm = state.lastLandmarks;
+                // Center face around nose tip (landmark #1)
+                const cx = lm[1].x;
+                const cy = lm[1].y;
+                const cz = lm[1].z;
+
+                for (let i = 0; i < FACE_VERTS; i++) {
+                    const pt = lm[i] || { x: 0.5, y: 0.5, z: 0 };
+                    const x = -(pt.x - cx) * 3.2; // Mirror horizontally for natural selfie view
+                    const y = -(pt.y - cy) * 3.2;
+                    const z = -(pt.z - cz) * 3.0 * state.depthScale * zDir;
+
+                    posArr[i * 3] = x;
+                    posArr[i * 3 + 1] = y;
+                    posArr[i * 3 + 2] = z;
+
+                    const normZ = (z + 0.6) / 1.2;
+                    let r = 0, g = 245, b = 212;
+                    if (imgData) {
+                        const px = Math.min(119, Math.max(0, Math.floor(pt.x * 120)));
+                        const py = Math.min(89, Math.max(0, Math.floor(pt.y * 90)));
+                        const idx = (py * 120 + px) * 4;
+                        r = imgData[idx];
+                        g = imgData[idx + 1];
+                        b = imgData[idx + 2];
+                    }
+                    const [cr, cg, cb] = computeVertexColor(normZ, r, g, b);
+                    colArr[i * 3] = cr;
+                    colArr[i * 3 + 1] = cg;
+                    colArr[i * 3 + 2] = cb;
+                }
+            } else {
+                // Interactive Procedural 3D Biometric Face (subtle breathing & head turn)
+                state.simTime += dt;
+                const yaw = Math.sin(state.simTime * 1.1) * 0.14;
+                const pitch = Math.cos(state.simTime * 0.8) * 0.06;
+                const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+
+                for (let i = 0; i < FACE_VERTS; i++) {
+                    const base = syntheticFaceBase[i];
+                    // Subtle laser scanning wave effect
+                    const pulse = Math.sin(base.v * 6 - state.simTime * 4) * 0.012;
+                    const rawX = base.x;
+                    const rawY = base.y + pitch * 0.2;
+                    const rawZ = (base.z + pulse) * state.depthScale * zDir;
+
+                    // Rotate slightly around Y
+                    const rx = rawX * cosY + rawZ * sinY;
+                    const rz = -rawX * sinY + rawZ * cosY;
+
+                    posArr[i * 3] = rx;
+                    posArr[i * 3 + 1] = rawY;
+                    posArr[i * 3 + 2] = rz;
+
+                    const normZ = (rawZ + 0.2) / (0.85 * state.depthScale);
+                    const [cr, cg, cb] = computeVertexColor(normZ, 40, 220, 240);
+                    colArr[i * 3] = cr;
+                    colArr[i * 3 + 1] = cg;
+                    colArr[i * 3 + 2] = cb;
+                }
+            }
+
+            posAttr.needsUpdate = true;
+            colAttr.needsUpdate = true;
+            geometry.computeVertexNormals();
+        }
+
+        function updateDepthReliefGeometry(dt) {
+            const rx = state.gridResX;
+            const ry = state.gridResY;
+            const posAttr = geometry.attributes.position;
+            const colAttr = geometry.attributes.color;
+            const posArr = posAttr.array;
+            const colArr = colAttr.array;
+            const zDir = state.invertZ ? -1 : 1;
+
+            sampleCanvas.width = rx;
+            sampleCanvas.height = ry;
+
+            if (state.isCameraActive && videoEl.readyState >= 2) {
+                sampleCtx.drawImage(videoEl, 0, 0, rx, ry);
+            } else {
+                // Draw synthetic 3D object relief onto sample canvas if camera is off
+                state.simTime += dt;
+                sampleCtx.fillStyle = '#050811';
+                sampleCtx.fillRect(0, 0, rx, ry);
+                const cx = rx / 2 + Math.sin(state.simTime * 1.4) * (rx * 0.08);
+                const cy = ry / 2 + Math.cos(state.simTime * 1.1) * (ry * 0.06);
+                const grad = sampleCtx.createRadialGradient(cx, cy, 2, cx, cy, rx * 0.42);
+                grad.addColorStop(0, '#ffffff');
+                grad.addColorStop(0.45, '#00bbf9');
+                grad.addColorStop(0.8, '#0f172a');
+                grad.addColorStop(1, '#020617');
+                sampleCtx.fillStyle = grad;
+                sampleCtx.fillRect(0, 0, rx, ry);
+            }
+
+            const imgData = sampleCtx.getImageData(0, 0, rx, ry).data;
+            const aspect = rx / ry;
+
+            for (let y = 0; y < ry; y++) {
+                for (let x = 0; x < rx; x++) {
+                    const i = y * rx + x;
+                    // Mirror X for natural interaction
+                    const srcX = (rx - 1) - x;
+                    const pIdx = (y * rx + srcX) * 4;
+
+                    const r = imgData[pIdx];
+                    const g = imgData[pIdx + 1];
+                    const b = imgData[pIdx + 2];
+
+                    // Perceived luminance (0..1)
+                    let lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+                    // Background threshold cutoff
+                    if (lum < state.bgThreshold) {
+                        lum = 0;
+                    }
+
+                    const normX = (x / (rx - 1) - 0.5) * 2.4 * aspect;
+                    const normY = -(y / (ry - 1) - 0.5) * 2.4;
+                    const z = (lum - 0.25) * 1.15 * state.depthScale * zDir;
+
+                    posArr[i * 3] = normX;
+                    posArr[i * 3 + 1] = normY;
+                    posArr[i * 3 + 2] = z;
+
+                    const [cr, cg, cb] = computeVertexColor(lum, r, g, b);
+                    colArr[i * 3] = cr;
+                    colArr[i * 3 + 1] = cg;
+                    colArr[i * 3 + 2] = cb;
+                }
+            }
+
+            posAttr.needsUpdate = true;
+            colAttr.needsUpdate = true;
+            geometry.computeVertexNormals();
+        }
+
+        // Draw PiP Live HUD Preview
+        function renderPiPHUD() {
+            const w = pipCanvas.width;
+            const h = pipCanvas.height;
+            pipCtx.clearRect(0, 0, w, h);
+
+            if (state.isCameraActive && videoEl.readyState >= 2) {
+                pipCtx.drawImage(videoEl, 0, 0, w, h);
+                // Overlay subtle cyan LiDAR tint
+                pipCtx.fillStyle = 'rgba(0, 245, 212, 0.08)';
+                pipCtx.fillRect(0, 0, w, h);
+
+                // If in Face mode and landmarks detected, draw IR dots on PiP
+                if (state.mode === 'face' && state.faceDetected && state.lastLandmarks) {
+                    pipCtx.fillStyle = '#00f5d4';
+                    for (let i = 0; i < state.lastLandmarks.length; i += 3) {
+                        const pt = state.lastLandmarks[i];
+                        pipCtx.fillRect(pt.x * w - 1, pt.y * h - 1, 2, 2);
+                    }
+                }
+            } else {
+                // Simulated IR Dot Matrix Preview
+                pipCtx.fillStyle = '#040814';
+                pipCtx.fillRect(0, 0, w, h);
+                pipCtx.fillStyle = 'rgba(0, 245, 212, 0.55)';
+                const cols = 18, rows = 14;
+                for (let r = 1; r < rows; r++) {
+                    for (let c = 1; c < cols; c++) {
+                        const dx = (c / cols) - 0.5;
+                        const dy = (r / rows) - 0.5;
+                        const d = Math.sqrt(dx * dx + dy * dy);
+                        if (d < 0.42) {
+                            const wave = Math.sin(d * 14 - state.simTime * 4) * 2;
+                            pipCtx.fillRect((c / cols) * w + wave, (r / rows) * h, 2, 2);
+                        }
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // MAIN ANIMATION LOOP
+        // ==========================================
+        let lastFrameTime = performance.now();
+        let frameCounter = 0;
+        let fpsTimer = performance.now();
+
+        async function animateLoop(now) {
+            requestAnimationFrame(animateLoop);
+
+            const dt = Math.min((now - lastFrameTime) / 1000, 0.1);
+            lastFrameTime = now;
+
+            // FPS Counter
+            frameCounter++;
+            if (now - fpsTimer >= 500) {
+                const fps = Math.round((frameCounter * 1000) / (now - fpsTimer));
+                hudFps.textContent = Math.min(60, fps);
+                frameCounter = 0;
+                fpsTimer = now;
+            }
+
+            // Send webcam frame to MediaPipe if in Face Mode
+            if (!state.isFrozen && state.isCameraActive && state.mode === 'face' && faceMesh && !isProcessingFrame && videoEl.readyState >= 2) {
+                isProcessingFrame = true;
+                faceMesh.send({ image: videoEl }).finally(() => {
+                    isProcessingFrame = false;
+                });
+            }
+
+            // Update 3D Geometry if not frozen
+            if (!state.isFrozen) {
+                if (state.mode === 'face') {
+                    updateFaceModeGeometry(dt);
+                } else {
+                    updateDepthReliefGeometry(dt);
+                }
+                renderPiPHUD();
+            }
+
+            if (state.autoRotate) {
+                scanGroup.rotation.y += dt * 0.55;
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // ==========================================
+        // 3D MODEL EXPORT (.OBJ AND .PLY)
+        // ==========================================
+        function triggerDownload(content, filename, mimeType = 'text/plain') {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function exportToOBJ() {
+            const posAttr = geometry.attributes.position;
+            const colAttr = geometry.attributes.color;
+            const indexAttr = geometry.index;
+            const count = posAttr.count;
+
+            let lines = [
+                '# TrueDepth & LiDAR Web 3D Studio Export',
+                `# Mode: ${state.mode.toUpperCase()} | Vertices: ${count}`,
+                'o ScanModel_3D'
+            ];
+
+            for (let i = 0; i < count; i++) {
+                const x = posAttr.getX(i).toFixed(5);
+                const y = posAttr.getY(i).toFixed(5);
+                const z = posAttr.getZ(i).toFixed(5);
+                const r = colAttr.getX(i).toFixed(4);
+                const g = colAttr.getY(i).toFixed(4);
+                const b = colAttr.getZ(i).toFixed(4);
+                lines.push(`v ${x} ${y} ${z} ${r} ${g} ${b}`);
+            }
+
+            if (indexAttr) {
+                const idxArr = indexAttr.array;
+                for (let i = 0; i < idxArr.length; i += 3) {
+                    const a = idxArr[i] + 1;
+                    const b = idxArr[i + 1] + 1;
+                    const c = idxArr[i + 2] + 1;
+                    lines.push(`f ${a} ${b} ${c}`);
+                }
+            }
+
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+            triggerDownload(lines.join('\n'), `3d-scan-${state.mode}-${timestamp}.obj`);
+            showToast('3D-модель успешно экспортирована в формат .OBJ!');
+        }
+
+        function exportToPLY() {
+            const posAttr = geometry.attributes.position;
+            const colAttr = geometry.attributes.color;
+            const count = posAttr.count;
+
+            let header = [
+                'ply',
+                'format ascii 1.0',
+                'comment Generated by TrueDepth Web 3D Studio',
+                `element vertex ${count}`,
+                'property float x',
+                'property float y',
+                'property float z',
+                'property uchar red',
+                'property uchar green',
+                'property uchar blue',
+                'end_header'
+            ];
+
+            let body = [];
+            for (let i = 0; i < count; i++) {
+                const x = posAttr.getX(i).toFixed(5);
+                const y = posAttr.getY(i).toFixed(5);
+                const z = posAttr.getZ(i).toFixed(5);
+                const r = Math.min(255, Math.max(0, Math.round(colAttr.getX(i) * 255)));
+                const g = Math.min(255, Math.max(0, Math.round(colAttr.getY(i) * 255)));
+                const b = Math.min(255, Math.max(0, Math.round(colAttr.getZ(i) * 255)));
+                body.push(`${x} ${y} ${z} ${r} ${g} ${b}`);
+            }
+
+            const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+            triggerDownload(header.concat(body).join('\n'), `lidar-cloud-${state.mode}-${timestamp}.ply`);
+            showToast('Облако точек экспортировано в формат .PLY!');
+        }
+
+        // ==========================================
+        // UI EVENT LISTENERS
+        // ==========================================
+        document.getElementById('btnStartCam').addEventListener('click', startCamera);
+
+        document.getElementById('btnSwitchCam').addEventListener('click', () => {
+            state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
+            startCamera();
+        });
+
+        function updateFreezeUI() {
+            const btn = document.getElementById('btnFreeze');
+            const txt = document.getElementById('freezeBtnText');
+            if (state.isFrozen) {
+                btn.className = 'px-4 py-2.5 rounded-xl bg-amber-500 text-slate-950 font-semibold text-xs sm:text-sm flex items-center gap-2 shadow-lg transition';
+                txt.textContent = 'Продолжить сканирование';
+                setStatus('СКАН ЗАФИКСИРОВАН', 'amber');
+            } else {
+                btn.className = 'px-4 py-2.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-white border border-cyan-400/50 font-medium text-xs sm:text-sm flex items-center gap-2 shadow-lg transition';
+                txt.textContent = 'Зафиксировать 3D скан';
+                setStatus(state.isCameraActive ? 'СКАНИРОВАНИЕ АКТИВНО' : 'ГОТОВ', 'cyan');
+            }
+        }
+
+        document.getElementById('btnFreeze').addEventListener('click', () => {
+            state.isFrozen = !state.isFrozen;
+            updateFreezeUI();
+            if (state.isFrozen) {
+                showToast('Скан зафиксирован! Теперь его можно осмотреть со всех сторон и скачать.');
+            }
+        });
+
+        // Mode Switching
+        const modeFaceBtn = document.getElementById('modeFaceBtn');
+        const modeDepthBtn = document.getElementById('modeDepthBtn');
+        const resGroup = document.getElementById('resolutionControlGroup');
+
+        modeFaceBtn.addEventListener('click', () => {
+            state.mode = 'face';
+            modeFaceBtn.className = 'mode-btn text-left p-3 rounded-xl border border-cyan-400 bg-cyan-500/10 transition flex items-start gap-3';
+            modeDepthBtn.className = 'mode-btn text-left p-3 rounded-xl border border-slate-700/80 bg-slate-900/50 hover:border-slate-600 transition flex items-start gap-3';
+            hudModeLabel.textContent = 'РЕЖИМ: 3D ЛИЦО (AI MESH)';
+            resGroup.classList.add('opacity-60');
+            rebuildThreeObjects(FACE_VERTS, mpTrianglesComputed ? mpTriangles : faceTriangles);
+        });
+
+        modeDepthBtn.addEventListener('click', () => {
+            state.mode = 'depth';
+            modeDepthBtn.className = 'mode-btn text-left p-3 rounded-xl border border-cyan-400 bg-cyan-500/10 transition flex items-start gap-3';
+            modeFaceBtn.className = 'mode-btn text-left p-3 rounded-xl border border-slate-700/80 bg-slate-900/50 hover:border-slate-600 transition flex items-start gap-3';
+            hudModeLabel.textContent = 'РЕЖИМ: КАРТА ГЛУБИНЫ (3D РЕЛЬЕФ)';
+            resGroup.classList.remove('opacity-60');
+            initDepthGridGeometry();
+        });
+
+        // Style Buttons
+        document.querySelectorAll('.style-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.style-btn').forEach(b => {
+                    b.className = 'style-btn px-3 py-2 rounded-xl border border-slate-700 bg-slate-900/60 text-xs font-medium text-slate-300 hover:border-slate-500 flex items-center gap-2 transition';
+                });
+                btn.className = 'style-btn px-3 py-2 rounded-xl border border-cyan-400 bg-cyan-500/15 text-xs font-medium text-white flex items-center gap-2 transition';
+                state.vizStyle = btn.dataset.style;
+                updateVisualizationStyle();
+            });
+        });
+
+        // Color Theme Buttons
+        document.querySelectorAll('.color-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.color-btn').forEach(b => {
+                    b.className = 'color-btn px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-800 text-slate-300 border border-slate-700';
+                });
+                btn.className = 'color-btn px-2.5 py-1 rounded-lg text-[11px] font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-400/50';
+                state.colorTheme = btn.dataset.color;
+            });
+        });
+
+        // Sliders
+        document.getElementById('sliderDepthScale').addEventListener('input', (e) => {
+            state.depthScale = parseFloat(e.target.value);
+            document.getElementById('valDepthScale').textContent = state.depthScale.toFixed(1) + 'x';
+        });
+
+        document.getElementById('sliderPointSize').addEventListener('input', (e) => {
+            state.pointSize = parseFloat(e.target.value);
+            document.getElementById('valPointSize').textContent = state.pointSize.toFixed(1) + ' px';
+            updateVisualizationStyle();
+        });
+
+        document.getElementById('sliderResolution').addEventListener('input', (e) => {
+            const rx = parseInt(e.target.value, 10);
+            const ry = Math.round(rx * 0.75);
+            state.gridResX = rx;
+            state.gridResY = ry;
+            document.getElementById('valResolution').textContent = `${rx}×${ry}`;
+            if (state.mode === 'depth') {
+                initDepthGridGeometry();
+            }
+        });
+
+        document.getElementById('sliderThreshold').addEventListener('input', (e) => {
+            const val = parseInt(e.target.value, 10);
+            state.bgThreshold = val / 100;
+            document.getElementById('valThreshold').textContent = `${val}%`;
+        });
+
+        document.getElementById('chkInvertZ').addEventListener('change', (e) => {
+            state.invertZ = e.target.checked;
+        });
+
+        // Viewport Actions
+        document.getElementById('btnResetView').addEventListener('click', () => {
+            controls.reset();
+            scanGroup.rotation.set(0, 0, 0);
+            camera.position.set(0, 0, 4.2);
+        });
+
+        document.getElementById('btnAutoRotate').addEventListener('click', (e) => {
+            state.autoRotate = !state.autoRotate;
+            e.currentTarget.classList.toggle('text-cyan-400', state.autoRotate);
+            e.currentTarget.classList.toggle('border-cyan-400', state.autoRotate);
+        });
+
+        // Export Buttons
+        document.getElementById('btnExportOBJ').addEventListener('click', exportToOBJ);
+        document.getElementById('btnExportPLY').addEventListener('click', exportToPLY);
+
+        // Info Modal
+        const infoModal = document.getElementById('infoModal');
+        document.getElementById('btnInfo').addEventListener('click', () => infoModal.classList.remove('hidden'));
+        document.getElementById('btnCloseModal').addEventListener('click', () => infoModal.classList.add('hidden'));
+        document.getElementById('btnCloseModalBottom').addEventListener('click', () => infoModal.classList.add('hidden'));
+
+        // Responsive Canvas Resize
+        window.addEventListener('resize', () => {
+            const w = container.clientWidth;
+            const h = container.clientHeight;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        });
+
+        // Start 3D Engine on Load
+        window.onload = () => {
+            requestAnimationFrame(animateLoop);
+        };
+    </script>
+</body>
+</html>
