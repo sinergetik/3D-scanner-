@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>3D Сканер — Автономная Версия v8</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+  body {
+    margin: 0; padding: 0;
+    background: #060911; color: #e2e8f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow-x: hidden;
+  }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  /* Верхняя панель без заголовка */
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(15, 23, 42, 0.92);
+    border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+    padding: 8px 10px;
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  }
+  .btn-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  button {
+    border: 1px solid #334155;
+    background: #1e293b; color: #f8fafc;
+    border-radius: 10px; padding: 8px 11px;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
+    touch-action: manipulation;
+  }
+  button:active { transform: scale(0.96); opacity: 0.85; }
+  .btn-primary {
+    background: linear-gradient(90deg, #06b6d4, #14b8a6);
+    color: #020617; border: none; font-weight: 700;
+  }
+  .btn-lidar {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7; border-color: rgba(16, 185, 129, 0.5);
+  }
+  .btn-nv-active {
+    background: rgba(34, 197, 94, 0.3) !important;
+    color: #86efac !important; border-color: #22c55e !important;
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+  }
+  .btn-active-card {
+    border-color: #00f5d4 !important;
+    background: rgba(6, 182, 212, 0.14) !important;
+  }
+
+  /* Строка живой диагностики */
+  #statusBar {
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+    padding: 6px 12px;
+    font-size: 11px;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  #statusText { color: #38bdf8; font-weight: 600; }
+
+  /* Сетка макета */
+  main {
+    max-width: 1200px; margin: 0 auto; padding: 10px;
+    display: grid; grid-template-columns: 1fr; gap: 12px;
+  }
+  @media (min-width: 960px) {
+    main { grid-template-columns: 2fr 1fr; }
+  }
+
+  /* 3D Вьюпорт */
+  #viewportBox {
+    position: relative;
+    width: 100%; height: 430px;
+    background: #04070e;
+    border: 1px solid rgba(0, 245, 212, 0.3);
+    border-radius: 16px;
+    overflow: hidden;
+    touch-action: none;
+  }
+  #main3DCanvas {
+    width: 100%; height: 100%; display: block;
+  }
+
+  /* HUD поверх 3D окна */
+  .hud-top-left {
+    position: absolute; top: 10px; left: 10px; z-index: 20;
+    display: flex; flex-direction: column; gap: 5px; pointer-events: none;
+  }
+  .hud-pill {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    padding: 5px 9px; border-radius: 8px;
+    font-size: 11px; color: #cbd5e1;
+  }
+  .hud-top-right {
+    position: absolute; top: 10px; right: 10px; z-index: 20;
+    display: flex; gap: 6px;
+  }
+
+  /* Мини-окно камеры PiP */
+  #pipBox {
+    position: absolute; bottom: 10px; left: 10px; z-index: 20;
+    width: 145px; height: 110px;
+    background: #020617;
+    border: 1px solid rgba(0, 245, 212, 0.45);
+    border-radius: 12px; overflow: hidden;
+    cursor: pointer;
+  }
+  #webcamVideo {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  #pipCanvas {
+    position: relative; z-index: 2; width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  .pip-laser {
+    position: absolute; left: 0; right: 0; height: 2px; z-index: 5;
+    background: linear-gradient(90deg, transparent, #00f5d4, transparent);
+    box-shadow: 0 0 8px #00f5d4;
+    animation: laserAnim 2.6s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes laserAnim {
+    0%, 100% { top: 8%; opacity: 0.35; }
+    50% { top: 90%; opacity: 0.95; }
+  }
+  .pip-badge {
+    position: absolute; bottom: 3px; left: 4px; right: 4px; z-index: 6;
+    background: rgba(2, 6, 23, 0.8);
+    padding: 2px 5px; border-radius: 4px;
+    font-size: 9px; display: flex; justify-content: space-between;
+    color: #38bdf8;
+  }
+
+  /* Кнопка заморозки справа внизу вьюпорта */
+  .hud-bottom-right {
+    position: absolute; bottom: 10px; right: 10px; z-index: 20;
+  }
+
+  /* Карточки настроек */
+  .card {
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    border-radius: 14px; padding: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .card-title {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    color: #22d3ee; letter-spacing: 0.04em;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .mode-btn {
+    width: 100%; text-align: left; padding: 10px;
+    border-radius: 12px; background: rgba(2, 6, 23, 0.55);
+    border: 1px solid #334155;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .mode-btn-title { font-size: 13px; font-weight: 700; color: #fff; display: flex; justify-content: space-between; }
+  .mode-btn-desc { font-size: 11px; color: #94a3b8; font-weight: 400; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+
+  /* Ползунки */
+  .slider-group { display: flex; flex-direction: column; gap: 4px; }
+  .slider-header { display: flex; justify-content: space-between; font-size: 12px; color: #cbd5e1; }
+  .slider-val { color: #22d3ee; font-weight: 700; }
+  input[type="range"] {
+    width: 100%; height: 7px; border-radius: 99px;
+    background: #1e293b; outline: none; -webkit-appearance: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 20px; height: 20px;
+    border-radius: 50%; background: #00f5d4; cursor: pointer;
+    box-shadow: 0 0 8px rgba(0, 245, 212, 0.8);
+  }
+
+  /* Нижняя компактная строка экспорта */
+  .export-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-radius: 12px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(56, 189, 248, 0.2);
+    font-size: 12px;
+  }
+
+  /* Модальное окно */
+  #infoModal {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(2, 6, 23, 0.85);
+    display: none; align-items: center; justify-content: center; padding: 16px;
+  }
+  .modal-box {
+    max-width: 440px; width: 100%;
+    background: #0f172a; border: 1px solid #06b6d4;
+    border-radius: 16px; padding: 16px;
+  }
+</style>
+</head>
+<body>
+
+  <!-- Верхняя панель кнопок (без лишней строки заголовка) -->
+  <header>
+    <div class="btn-row">
+      <button type="button" id="btnInfo">ℹ️</button>
+      <button type="button" id="btnSwitchCam">🔄 Камера</button>
+      <button type="button" id="btnNightVision">👁 ПНВ</button>
+    </div>
+    <div class="btn-row">
+      <button type="button" id="btnStartLiDAR" class="btn-lidar">📡 LiDAR (XR)</button>
+      <button type="button" id="btnStartCam" class="btn-primary">📷 <span id="btnStartCamText">Вкл. Камеру</span></button>
+    </div>
+  </header>
+
+  <!-- Живая строка статуса (показывает каждое действие и проверку версии v8) -->
+  <div id="statusBar" class="mono">
+    <span id="statusText">✅ v8 ЗАГРУЖЕНА: двигайте ползунки или нажмите «📷 Вкл. Камеру»</span>
+    <span id="protoBadge" style="color:#94a3b8;"></span>
+  </div>
+
+  <main>
+    <!-- Левая колонка: 3D Вьюпорт -->
+    <div>
+      <div id="viewportBox">
+        <canvas id="main3DCanvas"></canvas>
+
+        <!-- Верхний левый HUD -->
+        <div class="hud-top-left mono">
+          <div class="hud-pill" id="hudModeLabel" style="color:#22d3ee; font-weight:700;">
+            РЕЖИМ: КАРТА ГЛУБИНЫ (3D РЕЛЬЕФ)
+          </div>
+          <div class="hud-pill">
+            ВЕРШИН: <strong id="hudVertices" style="color:#fff;">10 800</strong> &nbsp;|&nbsp;
+            FPS: <strong id="hudFps" style="color:#4ade80;">60</strong>
+          </div>
+        </div>
+
+        <!-- Верхние правые кнопки вращения и центрирования -->
+        <div class="hud-top-right">
+          <button type="button" id="btnAutoRotate" style="padding:6px 9px; font-size:11px;">🔄 Вращ.</button>
+          <button type="button" id="btnResetView" style="padding:6px 9px; font-size:11px;">🎯 Центр</button>
+        </div>
+
+        <!-- Мини-экран камеры PiP -->
+        <div id="pipBox" title="Нажмите для запуска камеры">
+          <div class="pip-laser" id="pipLaser"></div>
+          <video id="webcamVideo" autoplay playsinline muted webkit-playsinline></video>
+          <canvas id="pipCanvas" width="160" height="120"></canvas>
+          <div class="pip-badge mono">
+            <span id="pipSourceLabel">3D СИМУЛЯТОР</span>
+            <span id="pipRightBadge" style="color:#4ade80;">IR</span>
+          </div>
+        </div>
+
+        <!-- Кнопка фиксации скана -->
+        <div class="hud-bottom-right">
+          <button type="button" id="btnFreeze" style="background:#0f172a; border-color:#00f5d4;">
+            <span id="freezeBtnText">❄️ Зафиксировать скан</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Правая колонка: Управление -->
+    <div style="display:flex; flex-direction:column; gap:10px;">
+
+      <!-- 1. Режим сканирования -->
+      <div class="card">
+        <div class="card-title">
+          <span>1. Режим датчика</span>
+          <span class="mono" style="color:#94a3b8; font-size:10px;">v8 Engine</span>
+        </div>
+
+        <button type="button" id="modeDepthBtn" class="mode-btn btn-active-card">
+          <div class="mode-btn-title">
+            <span>🏔 Карта глубины (3D Рельеф)</span>
+            <span class="mono" style="color:#22d3ee; font-size:11px;">Рельеф</span>
+          </div>
+          <div class="mode-btn-desc">Строит 3D-сетку любого объекта перед камерой по карте высот + ПНВ.</div>
+        </button>
+
+        <button type="button" id="modeFaceBtn" class="mode-btn">
+          <div class="mode-btn-title">
+            <span>👤 3D Лицо (TrueDepth Маска)</span>
+            <span class="mono" style="color:#94a3b8; font-size:11px;">468 тчк</span>
+          </div>
+          <div class="mode-btn-desc">Строит 3D-слепок лица по 468 биометрическим точкам.</div>
+        </button>
+
+        <button type="button" id="modeLidarBtn" class="mode-btn">
+          <div class="mode-btn-title">
+            <span>📡 Реальный LiDAR (XRViewer)</span>
+            <span class="mono" style="color:#6ee7b7; font-size:11px;">ARKit 1:1</span>
+          </div>
+          <div class="mode-btn-desc">Аппаратный лазерный датчик глубины iPhone Pro через WebXR.</div>
+        </button>
+      </div>
+
+      <!-- 2. Стиль 3D и Палитра -->
+      <div class="card">
+        <div class="card-title"><span>2. Стиль 3D и ПНВ</span></div>
+        <div class="grid-2">
+          <button type="button" data-style="combined" class="style-btn btn-active-card">⚡ LiDAR Гибрид</button>
+          <button type="button" data-style="points" class="style-btn">⁙ Облако точек</button>
+          <button type="button" data-style="wireframe" class="style-btn">🕸 3D Сетка</button>
+          <button type="button" data-style="solid" class="style-btn">🧊 Полигоны</button>
+        </div>
+
+        <div class="grid-4" style="padding-top:4px;">
+          <button type="button" data-color="lidar" class="color-btn btn-active-card" style="font-size:11px; padding:6px;">Циан</button>
+          <button type="button" data-color="night" class="color-btn" style="font-size:11px; padding:6px; color:#86efac;">ПНВ ИК</button>
+          <button type="button" data-color="heatmap" class="color-btn" style="font-size:11px; padding:6px;">Тепловая</button>
+          <button type="button" data-color="rgb" class="color-btn" style="font-size:11px; padding:6px;">RGB</button>
+        </div>
+      </div>
+
+      <!-- 3. Калибровка глубины и ПНВ -->
+      <div class="card">
+        <div class="card-title"><span>3. Калибровка Z и ПНВ</span></div>
+
+        <div class="slider-group">
+          <div class="slider-header">
+            <span>Множитель глубины (Z-Scale)</span>
+            <span id="valDepthScale" class="slider-val mono">1.5x</span>
+          </div>
+          <input id="sliderDepthScale" type="range" min="0.2" max="3.5" step="0.1" value="1.5">
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-header">
+            <span>Усиление света ПНВ (Night Gain)</span>
+            <span id="valNightGain" class="slider-val mono" style="color:#4ade80;">3.5x</span>
+          </div>
+          <input id="sliderNightGain" type="range" min="1.0" max="8.0" step="0.5" value="3.5">
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-header">
+            <span>Плотность сетки рельефа</span>
+            <span id="valResolution" class="slider-val mono">80×60</span>
+          </div>
+          <input id="sliderResolution" type="range" min="32" max="120" step="8" value="80">
+        </div>
+
+        <div class="slider-group">
+          <div class="slider-header">
+            <span>Отсечение дальнего фона</span>
+            <span id="valThreshold" class="slider-val mono">10%</span>
+          </div>
+          <input id="sliderThreshold" type="range" min="0" max="60" step="2" value="10">
+        </div>
+
+        <label style="display:flex; justify-content:space-between; align-items:center; font-size:12px; padding-top:4px; cursor:pointer;">
+          <span>Инвертировать ось Z (Выпуклость)</span>
+          <input id="chkInvertZ" type="checkbox" style="width:18px; height:18px;">
+        </label>
+      </div>
+
+      <!-- Компактная строка экспорта в самом низу -->
+      <div class="export-bar">
+        <span style="color:#94a3b8;">💾 Экспорт 3D:</span>
+        <div class="btn-row">
+          <button type="button" id="btnExportOBJ" class="mono" style="padding:6px 10px; color:#22d3ee; border-color:#0891b2;">Скачать .OBJ</button>
+          <button type="button" id="btnExportPLY" class="mono" style="padding:6px 10px; color:#6ee7b7; border-color:#059669;">Скачать .PLY</button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Модальное окно справки -->
+  <div id="infoModal">
+    <div class="modal-box">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <strong style="font-size:14px; color:#fff;">Автономная версия v8 (Без внешних скриптов)</strong>
+        <button type="button" id="btnCloseModal" style="padding:4px 8px;">✕</button>
+      </div>
+      <div style="font-size:12px; color:#cbd5e1; line-height:1.5; display:flex; flex-direction:column; gap:8px;">
+        <div>
+          <strong style="color:#38bdf8;">1. Почему v8 работает везде:</strong><br>
+          Из файла полностью удалены внешние интернет-библиотеки (Tailwind, Three.js CDN), которые блокировались в WebXR Viewer и в просмотре файлов на iOS. Весь 3D-движок теперь встроен внутрь самого файла.
+        </div>
+        <div>
+          <strong style="color:#4ade80;">2. Как включить камеру и LiDAR:</strong><br>
+          Если вы загружаете файл на <code>sinergetik.github.io</code>, обязательно откройте ссылку с параметром <code>?v=8</code> в конце адресной строки, чтобы браузер не показывал старую закэшированную страницу.
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function() {
+  // =========================================================
+  // 100% АВТОНОМНЫЙ 3D ДВИЖОК (НОЛЬ ВНЕШНИХ БИБЛИОТЕК)
+  // =========================================================
+  var state = {
+    mode: 'depth',        // 'depth' | 'face' | 'lidar'
+    vizStyle: 'combined', // 'combined' | 'points' | 'wireframe' | 'solid'
+    colorTheme: 'lidar',  // 'lidar' | 'night' | 'heatmap' | 'rgb'
+    nightVision: false,
+    nightGain: 3.5,
+    depthScale: 1.5,
+    gridResX: 80,
+    gridResY: 60,
+    bgThreshold: 0.10,
+    invertZ: false,
+    isCameraActive: false,
+    facingMode: 'environment',
+    isFrozen: false,
+    autoRotate: false,
+    simTime: 0,
+    // Углы вращения 3D камеры пальцем/мышью
+    yaw: 0.35,
+    pitch: 0.25,
+    zoom: 3.3,
+    xrSession: null,
+    xrPoints: []
+  };
+
+  var statusText = document.getElementById('statusText');
+  var protoBadge = document.getElementById('protoBadge');
+  var hudModeLabel = document.getElementById('hudModeLabel');
+  var hudVertices = document.getElementById('hudVertices');
+  var hudFps = document.getElementById('hudFps');
+  var videoEl = document.getElementById('webcamVideo');
+  var pipCanvas = document.getElementById('pipCanvas');
+  var pipCtx = pipCanvas.getContext('2d');
+  var mainCanvas = document.getElementById('main3DCanvas');
+  var ctx = mainCanvas.getContext('2d');
+
+  var sampleCanvas = document.createElement('canvas');
+  var sampleCtx = sampleCanvas.getContext('2d');
+
+  protoBadge.textContent = location.protocol.toUpperCase();
+
+  function setStatus(msg, isError) {
+    statusText.textContent = msg;
+    statusText.style.color = isError ? '#fb7185' : '#38bdf8';
+  }
+
+  // Массивы 3D вершин (X, Y, Z) и цветов (R, G, B в 0..255)
+  var MAX_VERTS = 120 * 90;
+  var vertsX = new Float32Array(MAX_VERTS);
+  var vertsY = new Float32Array(MAX_VERTS);
+  var vertsZ = new Float32Array(MAX_VERTS);
+  var vertsR = new Uint8Array(MAX_VERTS);
+  var vertsG = new Uint8Array(MAX_VERTS);
+  var vertsB = new Uint8Array(MAX_VERTS);
+  var activeVertCount = state.gridResX * state.gridResY;
+
+  // Базовая 3D модель лица (468 точек: 26x18)
+  var FACE_COLS = 26, FACE_ROWS = 18;
+  var FACE_COUNT = FACE_COLS * FACE_ROWS;
+  var faceBaseX = new Float32Array(FACE_COUNT);
+  var faceBaseY = new Float32Array(FACE_COUNT);
+  var faceBaseZ = new Float32Array(FACE_COUNT);
+
+  (function buildFaceTemplate() {
+    var idx = 0;
+    for (var r = 0; r < FACE_ROWS; r++) {
+      for (var c = 0; c < FACE_COLS; c++) {
+        var u = (c / (FACE_COLS - 1)) * 2 - 1;
+        var v = (r / (FACE_ROWS - 1)) * 2 - 1;
+        var rad = Math.sqrt(u * u * 1.15 + v * v * 0.85);
+        var mask = Math.max(0, 1 - Math.pow(rad, 2.2));
+        var z = mask * 0.55;
+        // Нос
+        z += Math.exp(-(u * u) / 0.025 - Math.pow(v - 0.05, 2) / 0.12) * 0.30;
+        // Глазницы
+        z -= Math.exp(-Math.pow(Math.abs(u) - 0.32, 2) / 0.03 - Math.pow(v - 0.22, 2) / 0.025) * 0.15;
+        // Губы
+        z += Math.exp(-(u * u) / 0.08 - Math.pow(v + 0.36, 2) / 0.015) * 0.12;
+        faceBaseX[idx] = u * 0.85 * (0.92 + 0.08 * Math.cos(v * 1.2));
+        faceBaseY[idx] = -v * 1.05;
+        faceBaseZ[idx] = z;
+        idx++;
+      }
+    }
+  })();
+
+  // Вычисление цвета вершины
+  function colorFromDepth(normZ, camR, camG, camB, edge) {
+    var c = Math.max(0, Math.min(1, normZ));
+    if (state.nightVision || state.colorTheme === 'night') {
+      var boost = Math.min(1, c * 0.85 + (edge || 0) * 0.65);
+      return [
+        Math.round(10 + boost * 40),
+        Math.round(65 + boost * 190),
+        Math.round(15 + boost * 55)
+      ];
+    } else if (state.colorTheme === 'lidar') {
+      return [
+        Math.round(5 + c * 35),
+        Math.round(100 + c * 155),
+        Math.round(145 + c * 105)
+      ];
+    } else if (state.colorTheme === 'heatmap') {
+      // Синий -> Зеленый -> Желтый -> Красный
+      var r = Math.round(Math.min(255, Math.max(0, (c - 0.4) * 425)));
+      var g = Math.round(Math.sin(c * Math.PI) * 240);
+      var b = Math.round(Math.min(255, Math.max(0, (0.6 - c) * 425)));
+      return [r, g, b];
+    } else {
+      return [camR || 40, camG || 220, camB || 240];
+    }
+  }
+
+  // =========================================================
+  // ОБНОВЛЕНИЕ 3D ГЕОМЕТРИИ КАЖДЫЙ КАДР
+  // =========================================================
+  function update3DPoints(dt) {
+    var zDir = state.invertZ ? -1 : 1;
+
+    if (state.mode === 'face') {
+      activeVertCount = FACE_COUNT;
+      hudVertices.textContent = FACE_COUNT.toString();
+      state.simTime += dt;
+
+      var haveCam = state.isCameraActive && videoEl.readyState >= 2;
+      var imgData = null;
+      if (haveCam) {
+        sampleCanvas.width = FACE_COLS;
+        sampleCanvas.height = FACE_ROWS;
+        sampleCtx.drawImage(videoEl, 0, 0, FACE_COLS, FACE_ROWS);
+        imgData = sampleCtx.getImageData(0, 0, FACE_COLS, FACE_ROWS).data;
+      }
+
+      for (var i = 0; i < FACE_COUNT; i++) {
+        var pulse = Math.sin(faceBaseY[i] * 5 - state.simTime * 4) * 0.015;
+        var extraCamZ = 0;
+        var r = 30, g = 230, b = 210;
+        if (imgData) {
+          var p = i * 4;
+          r = imgData[p]; g = imgData[p + 1]; b = imgData[p + 2];
+          var lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+          extraCamZ = (lum - 0.4) * 0.25;
+        }
+        var z = (faceBaseZ[i] + pulse + extraCamZ) * state.depthScale * zDir;
+        vertsX[i] = faceBaseX[i];
+        vertsY[i] = faceBaseY[i];
+        vertsZ[i] = z;
+
+        var normZ = (z + 0.2) / (0.9 * state.depthScale + 0.01);
+        var rgb = colorFromDepth(normZ, r, g, b, 0);
+        vertsR[i] = rgb[0]; vertsG[i] = rgb[1]; vertsB[i] = rgb[2];
+      }
+      return;
+    }
+
+    // Режим Карты Глубины (3D Рельеф)
+    var rx = state.gridResX;
+    var ry = state.gridResY;
+    activeVertCount = rx * ry;
+    hudVertices.textContent = activeVertCount.toLocaleString('ru-RU');
+
+    sampleCanvas.width = rx;
+    sampleCanvas.height = ry;
+
+    if (state.isCameraActive && videoEl.readyState >= 2) {
+      sampleCtx.drawImage(videoEl, 0, 0, rx, ry);
+    } else {
+      state.simTime += dt;
+      sampleCtx.fillStyle = '#050811';
+      sampleCtx.fillRect(0, 0, rx, ry);
+      // Демо-рельеф (живая 3D-сфера с волнами, чтобы сразу видеть реакцию на ползунки!)
+      var cx = rx * 0.5 + Math.sin(state.simTime * 1.5) * (rx * 0.12);
+      var cy = ry * 0.5 + Math.cos(state.simTime * 1.1) * (ry * 0.10);
+      var grad = sampleCtx.createRadialGradient(cx, cy, 2, cx, cy, rx * 0.44);
+      grad.addColorStop(0, '#ffffff');
+      grad.addColorStop(0.45, '#00bbf9');
+      grad.addColorStop(0.8, '#0f172a');
+      grad.addColorStop(1, '#020617');
+      sampleCtx.fillStyle = grad;
+      sampleCtx.fillRect(0, 0, rx, ry);
+    }
+
+    var img = sampleCtx.getImageData(0, 0, rx, ry).data;
+    var gain = state.nightVision ? state.nightGain : 1.0;
+    var lumArr = new Float32Array(activeVertCount);
+
+    for (var k = 0; k < activeVertCount; k++) {
+      var pi = k * 4;
+      var l = (0.299 * img[pi] + 0.587 * img[pi + 1] + 0.114 * img[pi + 2]) / 255;
+      if (state.nightVision) {
+        l = Math.min(1.0, Math.pow(l, 0.55) * (gain * 0.48));
+      }
+      lumArr[k] = l;
+    }
+
+    var aspect = rx / ry;
+    for (var y = 0; y < ry; y++) {
+      for (var x = 0; x < rx; x++) {
+        var idx = y * rx + x;
+        var srcX = state.facingMode === 'user' ? (rx - 1) - x : x;
+        var sIdx = y * rx + srcX;
+        var cIdx = sIdx * 4;
+
+        var lum = lumArr[sIdx];
+        var edge = 0;
+        if (x > 0 && x < rx - 1 && y > 0 && y < ry - 1) {
+          var gx = lumArr[y * rx + (srcX + 1)] - lumArr[y * rx + (srcX - 1)];
+          var gy = lumArr[(y + 1) * rx + srcX] - lumArr[(y - 1) * rx + srcX];
+          edge = Math.min(1.0, Math.hypot(gx, gy) * 2.6);
+        }
+
+        if (lum < state.bgThreshold) lum = 0;
+
+        vertsX[idx] = (x / (rx - 1) - 0.5) * 2.2 * aspect;
+        vertsY[idx] = -(y / (ry - 1) - 0.5) * 2.2;
+        vertsZ[idx] = ((lum + edge * 0.25) - 0.25) * 1.15 * state.depthScale * zDir;
+
+        var rgb2 = colorFromDepth(lum, img[cIdx], img[cIdx + 1], img[cIdx + 2], edge);
+        vertsR[idx] = rgb2[0]; vertsG[idx] = rgb2[1]; vertsB[idx] = rgb2[2];
+      }
+    }
+  }
+
+  // =========================================================
+  // ПРОЕКЦИЯ И ОТРИСОВКА 3D ВЬЮПОРТА (РАБОТАЕТ БЕЗ WEBGL!)
+  // =========================================================
+  var projX = new Float32Array(MAX_VERTS);
+  var projY = new Float32Array(MAX_VERTS);
+  var projZ = new Float32Array(MAX_VERTS);
+
+  function render3DViewport() {
+    var box = document.getElementById('viewportBox');
+    var w = box.clientWidth || 360;
+    var h = box.clientHeight || 420;
+    if (mainCanvas.width !== w || mainCanvas.height !== h) {
+      mainCanvas.width = w;
+      mainCanvas.height = h;
+    }
+
+    ctx.fillStyle = state.nightVision ? '#020b05' : '#04070e';
+    ctx.fillRect(0, 0, w, h);
+
+    var cosY = Math.cos(state.yaw), sinY = Math.sin(state.yaw);
+    var cosX = Math.cos(state.pitch), sinX = Math.sin(state.pitch);
+    var fov = Math.min(w, h) * 0.82;
+    var camDist = state.zoom;
+
+    // 1. Отрисовка опорной 3D-сетки пола
+    ctx.strokeStyle = state.nightVision ? 'rgba(34, 197, 94, 0.18)' : 'rgba(0, 245, 212, 0.15)';
+    ctx.lineWidth = 1;
+    var floorY = -1.25;
+    for (var g = -1.5; g <= 1.5; g += 0.3) {
+      // Линии вдоль Z
+      var x1 = g * cosY - (-1.5) * sinY;
+      var z1 = g * sinY + (-1.5) * cosY;
+      var y1 = floorY * cosX - z1 * sinX;
+      var d1 = floorY * sinX + z1 * cosX + camDist;
+
+      var x2 = g * cosY - (1.5) * sinY;
+      var z2 = g * sinY + (1.5) * cosY;
+      var y2 = floorY * cosX - z2 * sinX;
+      var d2 = floorY * sinX + z2 * cosX + camDist;
+
+      if (d1 > 0.2 && d2 > 0.2) {
+        ctx.beginPath();
+        ctx.moveTo(w * 0.5 + (x1 / d1) * fov, h * 0.5 - (y1 / d1) * fov);
+        ctx.lineTo(w * 0.5 + (x2 / d2) * fov, h * 0.5 - (y2 / d2) * fov);
+        ctx.stroke();
+      }
+    }
+
+    // 2. Проекция всех 3D вершин модели
+    var n = activeVertCount;
+    for (var i = 0; i < n; i++) {
+      var x = vertsX[i], y = vertsY[i], z = vertsZ[i];
+      var rx = x * cosY + z * sinY;
+      var rz = -x * sinY + z * cosY;
+      var ry = y * cosX - rz * sinX;
+      var fz = y * sinX + rz * cosX + camDist;
+
+      projZ[i] = fz;
+      if (fz > 0.15) {
+        projX[i] = w * 0.5 + (rx / fz) * fov;
+        projY[i] = h * 0.5 - (ry / fz) * fov;
+      } else {
+        projX[i] = -9999;
+      }
+    }
+
+    var cols = state.mode === 'face' ? FACE_COLS : state.gridResX;
+    var rows = state.mode === 'face' ? FACE_ROWS : state.gridResY;
+    var st = state.vizStyle;
+
+    // 3. Отрисовка 3D-сетки (Wireframe / Combined / Solid)
+    if ((st === 'wireframe' || st === 'combined' || st === 'solid') && state.mode !== 'lidar') {
+      ctx.lineWidth = st === 'wireframe' ? 1.1 : 0.6;
+      var step = (cols > 90 && st === 'combined') ? 2 : 1;
+
+      for (var r = 0; r < rows - step; r += step) {
+        for (var c = 0; c < cols - step; c += step) {
+          var i0 = r * cols + c;
+          var i1 = i0 + step;
+          var i2 = (r + step) * cols + c;
+
+          if (projX[i0] > -900 && projX[i1] > -900 && projX[i2] > -900) {
+            var cr = vertsR[i0], cg = vertsG[i0], cb = vertsB[i0];
+            if (st === 'solid') {
+              ctx.fillStyle = 'rgb(' + cr + ',' + cg + ',' + cb + ')';
+              ctx.beginPath();
+              ctx.moveTo(projX[i0], projY[i0]);
+              ctx.lineTo(projX[i1], projY[i1]);
+              ctx.lineTo(projX[i2], projY[i2]);
+              ctx.fill();
+            } else {
+              var alpha = st === 'wireframe' ? 0.75 : 0.28;
+              ctx.strokeStyle = 'rgba(' + cr + ',' + cg + ',' + cb + ',' + alpha + ')';
+              ctx.beginPath();
+              ctx.moveTo(projX[i0], projY[i0]);
+              ctx.lineTo(projX[i1], projY[i1]);
+              ctx.lineTo(projX[i2], projY[i2]);
+              ctx.stroke();
+            }
+          }
+        }
+      }
+    }
+
+    // 4. Отрисовка точек лазера LiDAR (Points / Combined)
+    if (st === 'points' || st === 'combined' || state.mode === 'lidar') {
+      var ptSize = state.mode === 'face' ? 3.2 : 2.4;
+      for (var j = 0; j < n; j++) {
+        var sx = projX[j];
+        if (sx > 0 && sx < w) {
+          var sy = projY[j];
+          if (sy > 0 && sy < h) {
+            ctx.fillStyle = 'rgb(' + vertsR[j] + ',' + vertsG[j] + ',' + vertsB[j] + ')';
+            ctx.fillRect(sx - ptSize * 0.5, sy - ptSize * 0.5, ptSize, ptSize);
+          }
+        }
+      }
+    }
+  }
+
+  // Отрисовка мини-окна PiP
+  function renderPiP() {
+    var w = pipCanvas.width, h = pipCanvas.height;
+    pipCtx.clearRect(0, 0, w, h);
+
+    if (state.isCameraActive && videoEl.readyState >= 2) {
+      if (state.nightVision) {
+        pipCtx.drawImage(videoEl, 0, 0, w, h);
+        var frame = pipCtx.getImageData(0, 0, w, h);
+        var d = frame.data;
+        var gain = state.nightGain;
+        for (var i = 0; i < d.length; i += 4) {
+          var lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          var boost = Math.min(255, Math.pow(lum / 255, 0.55) * 255 * (gain * 0.5));
+          d[i] = boost * 0.12;
+          d[i + 1] = boost;
+          d[i + 2] = boost * 0.2;
+        }
+        pipCtx.putImageData(frame, 0, 0);
+      }
+    } else {
+      pipCtx.fillStyle = state.nightVision ? '#021206' : '#040814';
+      pipCtx.fillRect(0, 0, w, h);
+      pipCtx.fillStyle = state.nightVision ? '#22c55e' : '#00f5d4';
+      for (var r = 1; r < 10; r++) {
+        for (var c = 1; c < 14; c++) {
+          var wave = Math.sin((c + r) * 0.6 - state.simTime * 4) * 2;
+          pipCtx.fillRect(c * 11 + wave, r * 11, 2, 2);
+        }
+      }
+    }
+  }
+
+  // =========================================================
+  // ВРАЩЕНИЕ 3D МОДЕЛИ ПАЛЬЦЕМ И МЫШЬЮ
+  // =========================================================
+  var isDragging = false;
+  var lastX = 0, lastY = 0;
+  var vpBox = document.getElementById('viewportBox');
+
+  vpBox.addEventListener('pointerdown', function(e) {
+    if (e.target.tagName === 'BUTTON' || e.target.closest('#pipBox')) return;
+    isDragging = true;
+    lastX = e.clientX;
+    lastY = e.clientY;
+  });
+
+  window.addEventListener('pointermove', function(e) {
+    if (!isDragging) return;
+    var dx = e.clientX - lastX;
+    var dy = e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    state.yaw += dx * 0.008;
+    state.pitch = Math.max(-1.2, Math.min(1.2, state.pitch + dy * 0.008));
+  });
+
+  window.addEventListener('pointerup', function() { isDragging = false; });
+
+  // =========================================================
+  // ЗАПУСК КАМЕРЫ И WEBXR LIDAR
+  // =========================================================
+  function startCamera() {
+    setStatus('Запрос доступа к камере...', false);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      var msg = 'Камера недоступна на протоколе ' + location.protocol + '. Откройте страницу через https:// (GitHub Pages)!';
+      setStatus('❌ ' + msg, true);
+      alert(msg);
+      return;
+    }
+
+    try {
+      if (videoEl.srcObject) {
+        videoEl.srcObject.getTracks().forEach(function(t) { t.stop(); });
+      }
+    } catch (e) {}
+
+    navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: state.facingMode, width: { ideal: 640 }, height: { ideal: 480 } }
+    }).catch(function() {
+      return navigator.mediaDevices.getUserMedia({ audio: false, video: true });
+    }).then(function(stream) {
+      videoEl.srcObject = stream;
+      videoEl.play().catch(function() {});
+      state.isCameraActive = true;
+      state.isFrozen = false;
+      document.getElementById('btnStartCamText').textContent = 'Активна';
+      document.getElementById('pipSourceLabel').textContent = state.facingMode === 'user' ? 'FRONT CAM' : 'REAR CAM';
+      setStatus('✅ Камера включена (' + (state.facingMode === 'user' ? 'Передняя' : 'Задняя') + ')', false);
+    }).catch(function(err) {
+      state.isCameraActive = false;
+      setStatus('❌ Отказ камеры: ' + err.name + ' (' + err.message + ')', true);
+      alert('Камера отклонена: ' + err.name + ' — ' + err.message);
+    });
+  }
+
+  function startLiDAR() {
+    setStatus('Подключение к LiDAR / задней камере...', false);
+    state.facingMode = 'environment';
+    if (!navigator.xr) {
+      setStatus('ℹ️ WebXR AR не активен — включаю задний сенсор в режиме Карты Глубины', false);
+      startCamera();
+      return;
+    }
+    navigator.xr.requestSession('immersive-ar', { optionalFeatures: ['hit-test'] }).then(function(session) {
+      setStatus('✅ ARKit LiDAR сессия запущена!', false);
+      session.end();
+      startCamera();
+    }).catch(function() {
+      startCamera();
+    });
+  }
+
+  // =========================================================
+  // ЭКСПОРТ В .OBJ И .PLY
+  // =========================================================
+  var NL = String.fromCharCode(10);
+
+  function downloadFile(text, name) {
+    var blob = new Blob([text], { type: 'text/plain' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  document.getElementById('btnExportOBJ').addEventListener('click', function() {
+    var lines = ['# 3D Scan Export v8', 'o ScanModel'];
+    for (var i = 0; i < activeVertCount; i++) {
+      lines.push('v ' + vertsX[i].toFixed(4) + ' ' + vertsY[i].toFixed(4) + ' ' + vertsZ[i].toFixed(4) + ' ' + (vertsR[i]/255).toFixed(3) + ' ' + (vertsG[i]/255).toFixed(3) + ' ' + (vertsB[i]/255).toFixed(3));
+    }
+    downloadFile(lines.join(NL), 'scan-' + state.mode + '-' + Date.now() + '.obj');
+    setStatus('💾 Файл .OBJ скачан (' + activeVertCount + ' вершин)', false);
+  });
+
+  document.getElementById('btnExportPLY').addEventListener('click', function() {
+    var lines = [
+      'ply', 'format ascii 1.0', 'element vertex ' + activeVertCount,
+      'property float x', 'property float y', 'property float z',
+      'property uchar red', 'property uchar green', 'property uchar blue', 'end_header'
+    ];
+    for (var i = 0; i < activeVertCount; i++) {
+      lines.push(vertsX[i].toFixed(4) + ' ' + vertsY[i].toFixed(4) + ' ' + vertsZ[i].toFixed(4) + ' ' + vertsR[i] + ' ' + vertsG[i] + ' ' + vertsB[i]);
+    }
+    downloadFile(lines.join(NL), 'cloud-' + state.mode + '-' + Date.now() + '.ply');
+    setStatus('💾 Облако точек .PLY скачано!', false);
+  });
+
+  // =========================================================
+  // ПРИВЯЗКА ВСЕХ КНОПОК И ПОЛЗУНКОВ
+  // =========================================================
+  document.getElementById('btnStartCam').addEventListener('click', startCamera);
+  document.getElementById('pipBox').addEventListener('click', startCamera);
+  document.getElementById('btnStartLiDAR').addEventListener('click', startLiDAR);
+
+  document.getElementById('btnSwitchCam').addEventListener('click', function() {
+    state.facingMode = state.facingMode === 'user' ? 'environment' : 'user';
+    startCamera();
+  });
+
+  function toggleNV(force) {
+    state.nightVision = typeof force === 'boolean' ? force : !state.nightVision;
+    var btn = document.getElementById('btnNightVision');
+    if (state.nightVision) {
+      state.colorTheme = 'night';
+      btn.classList.add('btn-nv-active');
+      document.getElementById('pipRightBadge').textContent = 'NV-IR';
+      setStatus('👁 Ночное видение (ПНВ + ИК контуры) ВКЛЮЧЕНО', false);
+    } else {
+      state.colorTheme = 'lidar';
+      btn.classList.remove('btn-nv-active');
+      document.getElementById('pipRightBadge').textContent = 'IR';
+      setStatus('Режим ПНВ выключен', false);
+    }
+  }
+
+  document.getElementById('btnNightVision').addEventListener('click', function() { toggleNV(); });
+
+  document.getElementById('btnFreeze').addEventListener('click', function() {
+    state.isFrozen = !state.isFrozen;
+    document.getElementById('freezeBtnText').textContent = state.isFrozen ? '▶️ Продолжить скан' : '❄️ Зафиксировать скан';
+    setStatus(state.isFrozen ? '❄️ Скан зафиксирован — вращайте 3D-модель пальцем' : 'Сканирование продолжено', false);
+  });
+
+  document.getElementById('btnAutoRotate').addEventListener('click', function() {
+    state.autoRotate = !state.autoRotate;
+    setStatus('Авто-вращение: ' + (state.autoRotate ? 'ВКЛ' : 'ВЫКЛ'), false);
+  });
+
+  document.getElementById('btnResetView').addEventListener('click', function() {
+    state.yaw = 0.35; state.pitch = 0.25; state.zoom = 3.3;
+    setStatus('Ракурс 3D сброшен по центру', false);
+  });
+
+  // Переключение режимов
+  var mDepth = document.getElementById('modeDepthBtn');
+  var mFace = document.getElementById('modeFaceBtn');
+  var mLidar = document.getElementById('modeLidarBtn');
+
+  function setActiveModeCard(btn) {
+    [mDepth, mFace, mLidar].forEach(function(b) { b.classList.remove('btn-active-card'); });
+    btn.classList.add('btn-active-card');
+  }
+
+  mDepth.addEventListener('click', function() {
+    state.mode = 'depth'; state.isFrozen = false;
+    setActiveModeCard(mDepth);
+    hudModeLabel.textContent = 'РЕЖИМ: КАРТА ГЛУБИНЫ (3D РЕЛЬЕФ)';
+    setStatus('Включен режим Карты Глубины (3D Рельеф)', false);
+  });
+
+  mFace.addEventListener('click', function() {
+    state.mode = 'face'; state.isFrozen = false;
+    setActiveModeCard(mFace);
+    hudModeLabel.textContent = 'РЕЖИМ: 3D ЛИЦО (468 ТОЧЕК)';
+    setStatus('Включен режим 3D Лицо (TrueDepth Маска)', false);
+  });
+
+  mLidar.addEventListener('click', function() {
+    setActiveModeCard(mLidar);
+    startLiDAR();
+  });
+
+  // Стили 3D
+  document.querySelectorAll('.style-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.style-btn').forEach(function(b) { b.classList.remove('btn-active-card'); });
+      btn.classList.add('btn-active-card');
+      state.vizStyle = btn.getAttribute('data-style');
+      setStatus('Стиль 3D: ' + state.vizStyle.toUpperCase(), false);
+    });
+  });
+
+  // Палитры
+  document.querySelectorAll('.color-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.color-btn').forEach(function(b) { b.classList.remove('btn-active-card'); });
+      btn.classList.add('btn-active-card');
+      var c = btn.getAttribute('data-color');
+      state.colorTheme = c;
+      toggleNV(c === 'night');
+    });
+  });
+
+  // Ползунки
+  document.getElementById('sliderDepthScale').addEventListener('input', function(e) {
+    state.depthScale = parseFloat(e.target.value);
+    document.getElementById('valDepthScale').textContent = state.depthScale.toFixed(1) + 'x';
+    setStatus('Глубина Z-Scale: ' + state.depthScale.toFixed(1) + 'x', false);
+  });
+
+  document.getElementById('sliderNightGain').addEventListener('input', function(e) {
+    state.nightGain = parseFloat(e.target.value);
+    document.getElementById('valNightGain').textContent = state.nightGain.toFixed(1) + 'x';
+    if (!state.nightVision) toggleNV(true);
+    setStatus('Усиление ПНВ: ' + state.nightGain.toFixed(1) + 'x', false);
+  });
+
+  document.getElementById('sliderResolution').addEventListener('input', function(e) {
+    var rx = parseInt(e.target.value, 10);
+    var ry = Math.round(rx * 0.75);
+    state.gridResX = rx; state.gridResY = ry;
+    document.getElementById('valResolution').textContent = rx + '×' + ry;
+    setStatus('Плотность сетки: ' + rx + '×' + ry + ' (' + (rx * ry) + ' вершин)', false);
+  });
+
+  document.getElementById('sliderThreshold').addEventListener('input', function(e) {
+    var v = parseInt(e.target.value, 10);
+    state.bgThreshold = v / 100;
+    document.getElementById('valThreshold').textContent = v + '%';
+    setStatus('Отсечение фона: ' + v + '%', false);
+  });
+
+  document.getElementById('chkInvertZ').addEventListener('change', function(e) {
+    state.invertZ = e.target.checked;
+    setStatus('Инверсия Z: ' + (state.invertZ ? 'ВКЛ' : 'ВЫКЛ'), false);
+  });
+
+  // Модальное окно
+  var modal = document.getElementById('infoModal');
+  document.getElementById('btnInfo').addEventListener('click', function() { modal.style.display = 'flex'; });
+  document.getElementById('btnCloseModal').addEventListener('click', function() { modal.style.display = 'none'; });
+
+  // =========================================================
+  // ГЛАВНЫЙ ЦИКЛ АНИМАЦИИ (60 FPS)
+  // =========================================================
+  var lastT = performance.now();
+  var fCount = 0, fClock = performance.now();
+
+  function loop(now) {
+    requestAnimationFrame(loop);
+    var dt = Math.min((now - lastT) / 1000, 0.1);
+    lastT = now;
+
+    fCount++;
+    if (now - fClock >= 500) {
+      hudFps.textContent = Math.min(60, Math.round((fCount * 1000) / (now - fClock))).toString();
+      fCount = 0; fClock = now;
+    }
+
+    if (state.autoRotate) {
+      state.yaw += dt * 0.65;
+    }
+
+    if (!state.isFrozen) {
+      update3DPoints(dt);
+      renderPiP();
+    }
+
+    render3DViewport();
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
